@@ -228,9 +228,6 @@ Change `maintenanceCadenceHours`. But at 24h, WHEA/GPU/BSOD dedupe breaks and fa
 **A.** 바탕화면 **"자동 유지보수 제거"** 더블클릭. 예약 작업·바로가기를 지우고 광고 설정도 원래대로 복원합니다(로그·설정은 보존). 광고만 복원하려면 `uninstall.ps1 -RestoreAds`.
 Double-click **"자동 유지보수 제거"**. It removes the task/shortcuts and restores ad settings (logs kept). For ads only: `uninstall.ps1 -RestoreAds`.
 
-**Q. 프로필 사진に GIF 써도 되나요? / Can I use a GIF avatar?**
-**A.** 네, GitHub은 PNG·GIF·JPG 아바타를 허용합니다. / Yes — GitHub accepts PNG, GIF and JPG avatars.
-
 ---
 
 ## 면책 / Disclaimer
