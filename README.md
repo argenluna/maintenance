@@ -1,5 +1,5 @@
-# Windows 자동 유지보수 키트 (v1.6.0)
-# Windows Auto Maintenance Kit (v1.6.0)
+# Windows 자동 유지보수 키트 (v1.7.0)
+# Windows Auto Maintenance Kit (v1.7.0)
 
 🪟🔧✨ 컴퓨터를 잘 모르는 사람도 3단계로 설치하고, 이후에는 아무것도 하지 않아도 6일에 한 번 스스로 점검하는 윈도우 유지보수 도구입니다.
 🪟🔧✨ A Windows maintenance tool that anyone can install in 3 steps, then forget about — it checks itself every 6 days automatically.
@@ -92,27 +92,27 @@ This kit does it **all at once, automatically, and safely**.
 1. ZIP을 받아 **폴더째로** 풀고, `install.cmd` 를 **더블클릭**합니다. (`.ps1` 은 메모장으로 열리므로 `.cmd` 를 쓰세요.)
    - 파란 확인 창에서 **"예"** → 첫 점검 끝까지 대기(약 1분).
 2. 그 뒤로는 **아무것도 하지 않아도 됩니다.** PC가 켜져 있으면 6일에 한 번 자동 점검합니다.
-3. 결과는 바탕화면 `자동유지보수_날짜시간.txt` 에 적힙니다. **맨 위 3줄만** 보면 됩니다.
-   - 지금 바로 점검: 바탕화면 **"자동 유지보수 점검"** 더블클릭
-   - 자동 점검 끄기: 바탕화면 **"자동 유지보수 제거"** 더블클릭 (로그·설정은 보존)
+3. 결과는 바탕화면 `자동유지보수_날짜시간.txt`(영어권 `auto-maintenance_날짜시간.txt`, 내용도 영어)에 적힙니다. **맨 위 3줄만** 보면 됩니다.
+   - 지금 바로 점검: 바탕화면 **"자동 유지보수 점검"**(영어권 `auto-maintenance`) 더블클릭
+   - 자동 점검 끄기: 바탕화면 **"자동 유지보수 제거"**(영어권 `remove maintenance`) 더블클릭 (로그·설정은 보존)
    - 컴퓨터를 전혀 모른다면: **`maintenance/newbie.txt`** 를 먼저 읽어보세요. 38개 검사를 레고·집·주방 비유로 설명합니다.
 
-> **시스템 언어 자동 감지 (v1.6.0)** — 한국어가 아니면 바탕화면 바로가기가
-> `maintenance` / `maintenance remove` / `maintenance feedback` 으로 만들어집니다.
+> **시스템 언어 자동 감지 (v1.6.0~, 결과 txt 영어 출력 v1.7.0)** — 한국어가 아니면 바탕화면 바로가기가
+> `auto-maintenance` / `remove maintenance` / `feedback maintenance` 로 만들어지고, 결과 txt 파일명과 내용도 영어가 됩니다.
 > SelfTest 결과·피드백 상태 파일·콘솔 메시지도 시스템 언어를 따릅니다.
 
 **English**
 1. Download the ZIP, extract the **whole folder**, and **double-click `install.cmd`**. (Use `.cmd` — `.ps1` opens in Notepad.)
    - Click **"Yes"** in the blue UAC prompt, then wait for the first check (~1 min).
 2. After that, **do nothing.** It checks itself every 6 days while the PC is on.
-3. Results go to `자동유지보수_날짜시간.txt` on your Desktop. **Read only the top 3 lines.**
-   - Check now: double-click **"자동 유지보수 점검"** on the Desktop.
-   - Disable: double-click **"자동 유지보수 제거"** (logs and settings are kept).
+3. Results go to `auto-maintenance_날짜시간.txt` on your Desktop, written entirely in English. **Read only the top 3 lines.**
+   - Check now: double-click **`auto-maintenance`** on the Desktop.
+   - Disable: double-click **`remove maintenance`** (logs and settings are kept).
    - Brand new to computers? Read **`maintenance/newbie.txt`** first — it explains all 38 checks with Lego/house/kitchen analogies.
 
-> **System language detection (v1.6.0)** — On non-Korean Windows, the Desktop shortcuts are named
-> `maintenance` / `maintenance remove` / `maintenance feedback`. Self-test results, the feedback
-> status file, and console messages also follow the system language.
+> **System language detection (v1.6.0, English reports v1.7.0)** — On non-Korean Windows, the Desktop shortcuts are named
+> `auto-maintenance` / `remove maintenance` / `feedback maintenance`, and the result txt file name and content are in English too.
+> Self-test results, the feedback status file, and console messages also follow the system language.
 
 ---
 
@@ -239,8 +239,8 @@ No. It touches services, tasks, registry, hosts and ad settings, so antivirus ma
 Change `maintenanceCadenceHours`. But at 24h, WHEA/GPU/BSOD dedupe breaks and false FAILs appear. 144h is recommended.
 
 **Q. 설치를 되돌리려면? / How to undo?**
-**A.** 바탕화면 **"자동 유지보수 제거"**(영어권: **"maintenance remove"**) 더블클릭. 예약 작업·바로가기를 지우고 광고 설정도 원래대로 복원합니다(로그·설정은 보존). 광고만 복원하려면 `uninstall.ps1 -RestoreAds`.
-Double-click **"자동 유지보수 제거"** (on non-Korean Windows: **"maintenance remove"**). It removes the task/shortcuts and restores ad settings (logs kept). For ads only: `uninstall.ps1 -RestoreAds`.
+**A.** 바탕화면 **"자동 유지보수 제거"**(영어권: **"remove maintenance"**) 더블클릭. 예약 작업·바로가기를 지우고 광고 설정도 원래대로 복원합니다(로그·설정은 보존). 광고만 복원하려면 `uninstall.ps1 -RestoreAds`.
+Double-click **"자동 유지보수 제거"** (on non-Korean Windows: **"remove maintenance"**). It removes the task/shortcuts and restores ad settings (logs kept). For ads only: `uninstall.ps1 -RestoreAds`.
 
 ---
 
@@ -260,4 +260,4 @@ Unofficial personal tool, not affiliated with Microsoft or any vendor. It change
 
 ---
 
-© 2026 — Windows Auto Maintenance Kit v1.6.0
+© 2026 — Windows Auto Maintenance Kit v1.7.0
