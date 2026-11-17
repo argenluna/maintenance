@@ -1,0 +1,21 @@
+# 런타임 산출물 (커밋하지 않음)
+logs/
+Simple maintenance/logs/
+Simple maintenance/logs-legacy-*.txt
+Simple maintenance/.last_*
+Simple maintenance/.task_registered
+Simple maintenance/last-result.json
+Simple maintenance/*-state.json
+Simple maintenance/startup-baseline.json
+Simple maintenance/config.json.bak
+Simple maintenance/adbackup/
+status.json
+Replay Cleanup/*.log
+Replay Cleanup/last_run.txt
+
+# 배포 패키지(빌드 산출물 — 필요할 때 Compress-Archive 로 재생성)
+dist/
+
+# 백업 파일
+*.bak
+*.bak-*

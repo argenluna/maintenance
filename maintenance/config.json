@@ -1,0 +1,13 @@
+{
+  "diskThresholdGB": 10,
+  "maintenanceCadenceHours": 144,
+  "maintenanceEnabled": true,
+  "setupComplete": true,
+  "logToFile": false,
+  "closeBehavior": "once",
+  "registerTask": false,
+  "enableLogging": false,
+  "schedule": false,
+  "idleConsoleMinutes": 5,
+  "resultRetentionDays": 90
+}

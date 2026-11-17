@@ -1,0 +1,42 @@
+{
+  "setupComplete": true,
+  "schedule": false,
+  "logToFile": false,
+  "closeBehavior": "none",
+  "registerTask": false,
+  "enableLogging": false,
+  "maintenanceCadenceHours": 144,
+  "idleConsoleMinutes": 5,
+  "resultRetentionDays": 90,
+  "chkdskDays": 12,
+  "heavyCheckDays": 30,
+  "licenseCheckDays": 30,
+  "watchedTasks": [
+    "\\OpenCode-Maintenance",
+    "\\FixNetworkMetric",
+    "\\opencode-cleanup",
+    "\\OpenCode-ReplayCleanup-3mo"
+  ],
+  "watchedTaskMaxAgeDays": 8,
+  "eventLookbackDays": 7,
+  "notifyOnFail": true,
+  "hfCacheWarnGB": 150,
+  "tempMinAgeDays": 1,
+  "tempCleanupMaxGB": 5,
+  "adQuiet": true,
+  "adQuietKeepLockScreen": true,
+  "adQuietMutePromoToasts": true,
+  "adQuietDisableTipsTasks": true,
+  "adBlockEnabled": false,
+  "adBlockCategories": [
+    "ads"
+  ],
+  "adBlockExtraDomains": [],
+  "adBlockAllowDomains": [],
+  "adBlockMaxDomains": 500,
+  "adDnsEnabled": false,
+  "adDnsServers": [
+    "94.140.14.14",
+    "94.140.15.15"
+  ]
+}
