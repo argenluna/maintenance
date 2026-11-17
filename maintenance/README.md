@@ -63,23 +63,23 @@ uninstall.ps1 (바탕화면 "자동 유지보수 제거") → 예약 작업/바�
 > 확인 위치: 바탕화면 `자동유지보수_*.txt`, 로그는 `logs\runner-YYYY-MM.log`(wrapper) 와
 > `Simple maintenance\logs\maintain-YYYY-MM-DD.log`(본체). 결과 txt 가 없으면 이 두 로그를 보내면 원인을 알 수 있다.
 
-## 버전 (현재 **v1.4.0**, 2026-11-17)
+## 버전 (현재 **v1.5.0**, 2026-11-18)
 
 수정할 때마다 버전을 올린다. **`VERSION` 파일(킷 루트)이 유일한 기준**이고, 각 스크립트가 이 파일을 읽어
 콘솔·결과 txt·로그에 찍는다. "친구 PC에서 어느 버전이 돌았는지"를 파일만 보고 확인할 수 있다.
 
 ```
 VERSION 파일 (2줄)
-  1.4.0
-  2026-11-17
+  1.5.0
+  2026-11-18
 ```
 
 | 확인 위치 | 표시 예 |
 |-----------|---------|
-| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v1.4.0 (2026-11-17)` |
-| 결과 txt | `실행: 2026-11-17 12:30` 아래 `버전: v1.4.0 (2026-11-17)` |
-| 실패/안내 txt | `버전: v1.4.0 (2026-11-17)` |
-| 로그 | `maintain-*.log` → `VERSION: v1.4.0 (2026-11-17)`, `runner-*.log` → `Kit version: …` |
+| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v1.5.0 (2026-11-18)` |
+| 결과 txt | `실행: 2026-11-18 12:30` 아래 `버전: v1.5.0 (2026-11-18)` |
+| 실패/안내 txt | `버전: v1.5.0 (2026-11-18)` |
+| 로그 | `maintain-*.log` → `VERSION: v1.5.0 (2026-11-18)`, `runner-*.log` → `Kit version: …` |
 | JSON | `status.json`, `Simple maintenance\last-result.json` 의 `version` |
 | 설치 폴더 | `VERSION` 파일 |
 
@@ -91,7 +91,7 @@ VERSION 파일 (2줄)
 | 기능 추가·동작 변경 | 새 검사 항목, 삭제 확인 방식 변경 | `1.1.x` → `1.2.0` |
 | 구조 변경 | 파일 구성/설정 키 변경(재설치 필요) | `1.x.y` → `2.0.0` |
 
-**ZIP 이름도 버전을 포함한다** — `dist\AutoMaintenance_v1.4.0_20261117.zip`
+**ZIP 이름도 버전을 포함한다** — `dist\AutoMaintenance_v1.5.0_20261118.zip`
 (예전 `AutoMaintenance_20261111.zip` 처럼 날짜만 쓰면, 내용만 바뀌었을 때 최신인지 구분할 수 없다.)
 
 | 버전 | 날짜 | 내용 |
@@ -105,6 +105,7 @@ VERSION 파일 (2줄)
 | 1.3.0 | 2026-11-17 | **바탕화면 결과 파일 자동 정리**(4개 이상이면 `자동점검결과` 폴더로 이동, 지우지 않음), **자동 실행 콘솔 표시 분기**(유휴 = 창 보임 / 사용 중 = 헤드리스, 직접 실행은 항상 보임), 첫 실행 로그 유실 버그(`logs` 폴더 조기 생성) — §12.20 |
 | 1.3.1 | 2026-11-17 | `logs` 가 **파일**로 남은 옛 설치본에서 로그가 계속 유실되던 문제 — 그 파일을 `logs-legacy-<시각>.txt` 로 이름만 바꿔 보존하고 폴더를 만든다(이 PC 실측) — §12.21 |
 | 1.4.0 | 2026-11-17 | **결과 파일 정리 방식 변경** — 4개 이상이면 최신 것까지 **전부** `자동점검결과` 폴더로 이동(바탕화면에는 이번 결과 1개만), 안내를 결과 txt·콘솔 양쪽에 표시. **3개월(90일) 지난 결과 파일 자동 삭제**(`resultRetentionDays`, 묻지 않음, 이 키트가 만든 결과 txt만) — §12.22 |
+| 1.5.0 | 2026-11-18 | **피드백 GitHub 자동 업로드** — 동의(y)/비동의(n·Enter) 선택, 동의 시 GraphQL `createDiscussion` 로 업로드 후 로컬 파일 삭제. **개인정보 마스킹 + 악성/이상 코드 검증**(`<BLOCKED>` 치환, 15/15 SelfTest). 실행 결과를 바탕화면 `자동유지보수_피드백상태.txt` 에 기록. REST 404 문제를 GraphQL로 해결 |
 
 ## 바탕화면 결과 파일 정리 + 자동 실행 콘솔 표시 (2026-11-17, v1.3.0 / v1.4.0)
 
@@ -620,19 +621,38 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 | `adDnsEnabled` | `false` | DNS 필터링 (**opt-in**) |
 | `adDnsServers` | `["94.140.14.14","94.140.15.15"]` | AdGuard DNS(광고+트래커). IPv4 만 허용 |
 
-## 피드백 내보내기 (v1.4.0) — GitHub 에 의견 보내기
+## 피드백 내보내기 (v1.5.0) — GitHub 자동 업로드
 
 바탕화면의 **"자동 유지보수 피드백"** 바로가기를 누르면 `feedback.ps1` 이 실행되어
-결과 파일에서 **민감정보를 지운 사본**을 바탕화면에 만들고 메모장으로 연다.
+결과 파일에서 **민감정보와 위험 코드를 지운 사본**을 바탕화면에 만든 뒤,
+**"이 내용을 GitHub 에 자동 업로드할까요?"** 를 묻는다.
 
-| 자동으로 지우는 것 | 남기는 것 (진단용) |
+| 선택 | 동작 |
 |---|---|
-| `C:\Users\<이름>` 경로, `도메인\사용자` | PASS/WARN/FAIL 상태, 단계 이름 |
-| hosts 차단 도메인, IP, MAC, 이메일, SSID, 시리얼 | 자동 수리 건수, 소요 시간, KB 번호 |
-| 삭제 전 확인 목록의 개별 파일 경로 | 하드웨어 모델명/드라이버 버전(필요 없으면 직접 지움) |
+| `y` (동의) | GraphQL `createDiscussion` 으로 GitHub Discussion 에 자동 업로드 → **성공 시 로컬 피드백 파일 삭제** |
+| `n` / Enter (비동의) | 업로드하지 않고 **파일을 바탕화면에 유지** (직접 확인·편집해서 올릴 수 있음) |
+| 업로드 실패 | 오류를 표시하고 **파일을 유지** (재시도 또는 직접 업로드 가능) |
 
-- 네트워크로 **자동 전송하지 않는다.** 파일을 확인·편집한 뒤 사용자가 직접 GitHub Discussion 에 붙여넣는다.
-- 마스킹 규칙 자체 검사: `powershell -File feedback.ps1 -SelfTest` → **10/10 PASS**.
+### 3중 안전장치
+
+1. **개인정보 마스킹** — `C:\Users\<이름>`, `도메인\사용자`, hosts 도메인, IP, MAC, 이메일, SSID, 시리얼, 컴퓨터명, 개별 삭제 경로를 제거.
+2. **악성/이상 코드 검증** — `<script>`, `javascript:` URL, HTML 엔티티, `powershell -enc`, `IEX(`/`FromBase64String`, `eval`, 긴 base64 blob, 셸 주입 패턴을 `<BLOCKED:종류>` 로 치환하고 건수를 보고. 진단용 `PASS/WARN/FAIL`, KB 번호, 하드웨어 모델은 유지.
+3. **업로드는 명시적 동의 후에만** — 기본은 비동의. 토큰은 하드코딩하지 않고 `gh auth token` → `GH_TOKEN`/`GITHUB_TOKEN` → 사용자 입력(저장 안 함) 순으로 얻는다.
+
+### 실행 결과 확인
+
+- 콘솔에 `실행 결과: 성공 (업로드 완료)` / `실패 (업로드 오류)` / `비동의` 배너를 표시한다.
+- 바탕화면 **`자동유지보수_피드백상태.txt`** 에 시각·버전·결과·업로드 URL·오류·차단 건수를 **덮어써서** 남긴다(파일이 쌓이지 않음).
+- Discussion 본문 하단에도 버전·생성 시각·안전검증 결과를 자동으로 붙인다.
+
+### 기술 메모
+
+- GitHub **REST 는 Discussion 생성을 지원하지 않는다** (`POST /repos/.../discussions` → 404). 따라서 **GraphQL `createDiscussion`** 을 사용한다 (토큰 `repo` 스코프면 충분).
+- 저장소 node ID / General 카테고리 ID 는 GraphQL 로 매번 동적으로 조회한다(조회 실패 시에만 공개 ID fallback).
+- 자체 검사: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (마스킹 10 + 안전검증 5).
+- 검증 옵션: `-DryRun` (업로드 없이 대상·payload·차단 건수만 출력), `-NoUpload` (예전처럼 파일만 생성), `-Yes` (동의 질문 생략), `-Token` (테스트용).
+
+Discussions: https://github.com/argenluna/maintenance/discussions
 
 ## 파일 구성
 
@@ -643,7 +663,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 | `readme.txt` | 사용 방법 (일반 사용자용 요약) | |
 | `newbie.txt` | **완전 초보자용 안내서** — 38개 검사를 레고·집·주방 비유로 설명 | |
 | `run-now.ps1` | "지금 점검" (`run-maintenance.ps1 -Force` + 결과 요약) | 바로가기 대상 |
-| `feedback.ps1` | **민감정보를 마스킹한 피드백 파일 생성** → GitHub Discussion 에 직접 붙여넣기 (`-SelfTest` 지원) | 바로가기 대상 |
+| `feedback.ps1` | **마스킹+악성코드 검증 → 동의/비동의 선택 → GitHub Discussion 자동 업로드** (`-SelfTest`, `-DryRun` 지원) | 바로가기 대상 |
+| `자동유지보수_피드백상태.txt` (바탕화면) | 마지막 피드백 실행 결과(성공/실패/비동의·URL·오류·차단 건수), 덮어쓰기 | 실행 결과 가시화 |
 | `uninstall.ps1` | 예약 작업/바로가기 제거 (로그·설정 보존) · `-RestoreAds` = 광고 설정만 복원 | 바로가기 대상 |
 | `run-maintenance.ps1` | 주기 게이트, `status.json` 갱신, `maintenance.ps1` 호출 | 예약 작업 대상 |
 | `Simple maintenance\maintenance.ps1` | 실제 점검/자동 수리 (38단계) | |

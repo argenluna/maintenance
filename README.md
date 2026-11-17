@@ -1,5 +1,5 @@
-# Windows 자동 유지보수 키트 (v1.4.0)
-# Windows Auto Maintenance Kit (v1.4.0)
+# Windows 자동 유지보수 키트 (v1.5.0)
+# Windows Auto Maintenance Kit (v1.5.0)
 
 🪟🔧✨ 컴퓨터를 잘 모르는 사람도 3단계로 설치하고, 이후에는 아무것도 하지 않아도 6일에 한 번 스스로 점검하는 윈도우 유지보수 도구입니다.
 🪟🔧✨ A Windows maintenance tool that anyone can install in 3 steps, then forget about — it checks itself every 6 days automatically.
@@ -160,20 +160,26 @@ Status words:
 ## 피드백 보내기 / Send feedback
 
 **한국어**
-바탕화면 **"자동 유지보수 피드백"** 더블클릭 → `feedback.ps1` 이 민감정보를 지운 사본을 바탕화면에 만들고 메모장으로 엽니다.
-- 자동으로 지우는 것: 사용자 경로, hosts 도메인, IP, MAC, 이메일, SSID, 시리얼, `도메인\사용자`
-- 남기는 것(진단용): PASS/WARN/FAIL 상태, 단계 이름, 수리 건수, KB 번호
-- **네트워크로 자동 전송하지 않습니다.** 직접 확인·편집한 뒤 GitHub Discussion에 붙여넣으세요.
-- 셀프 테스트: `powershell -File feedback.ps1 -SelfTest` → **10/10 PASS**
+바탕화면 **"자동 유지보수 피드백"** 더블클릭 → `feedback.ps1` 이 개인정보와 위험 코드를 지운 안전한 사본을 만든 뒤 **"GitHub 에 자동 업로드할까요?"** 를 묻습니다.
+- 자동으로 지우는 것: 사용자 경로, hosts 도메인, IP, MAC, 이메일, SSID, 시리얼, `도메인\사용자`, `<script>`·`javascript:`·`powershell -enc`·`IEX(`·`eval`·긴 base64 같은 이상 코드(`<BLOCKED:종류>` 로 치환)
+- 남기는 것(진단용): PASS/WARN/FAIL 상태, 단계 이름, 수리 건수, KB 번호, 하드웨어 모델
+- **`y`(동의)** → GitHub Discussion 에 자동 업로드하고, 성공하면 로컬 피드백 파일을 삭제합니다.
+- **`n`/Enter(비동의)** → 업로드하지 않고 파일을 바탕화면에 유지합니다. 업로드 실패 시에도 파일을 유지합니다.
+- 실행 결과(성공/실패/비동의·URL·오류·차단 건수)는 바탕화면 **자동유지보수_피드백상태.txt** 에 덮어써서 남습니다.
+- 토큰은 저장하지 않고 `gh auth token` → `GH_TOKEN` → 사용자 입력 순으로 얻습니다. GitHub REST 는 Discussions 생성을 지원하지 않아 **GraphQL `createDiscussion`** 을 사용합니다.
+- 셀프 테스트: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (마스킹 10 + 안전검증 5)
 
 Discussions: https://github.com/argenluna/maintenance/discussions
 
 **English**
-Double-click **"자동 유지보수 피드백"** on the Desktop → `feedback.ps1` creates a masked copy on the Desktop and opens it in Notepad.
-- Auto-masked: user paths, hosts domains, IP, MAC, email, SSID, serial, `DOMAIN\user`
-- Kept for diagnosis: PASS/WARN/FAIL status, check names, repair counts, KB numbers
-- **Nothing is uploaded automatically.** Review/edit it yourself, then paste it into a GitHub Discussion.
-- Self-test: `powershell -File feedback.ps1 -SelfTest` → **10/10 PASS**
+Double-click **"자동 유지보수 피드백"** on the Desktop → `feedback.ps1` creates a masked/sanitized copy and asks **"Upload this to GitHub automatically?"**
+- Auto-removed: user paths, hosts domains, IP, MAC, email, SSID, serial, `DOMAIN\user`, and suspicious code (`<script>`, `javascript:`, `powershell -enc`, `IEX(`, `eval`, long base64 → replaced with `<BLOCKED:type>`)
+- Kept for diagnosis: PASS/WARN/FAIL status, check names, repair counts, KB numbers, hardware model
+- **`y` (consent)** → uploads to a GitHub Discussion and deletes the local feedback file on success.
+- **`n`/Enter (no consent)** → no upload; the file stays on the Desktop. It is also kept if the upload fails.
+- The run result (success/failure/declined, URL, error, blocked count) is written (overwritten) to **자동유지보수_피드백상태.txt** on the Desktop.
+- No token is stored: `gh auth token` → `GH_TOKEN` → user input. GitHub REST cannot create Discussions, so **GraphQL `createDiscussion`** is used.
+- Self-test: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (10 masking + 5 safety)
 
 ---
 
@@ -246,4 +252,4 @@ Unofficial personal tool, not affiliated with Microsoft or any vendor. It change
 
 ---
 
-© 2026 — Windows Auto Maintenance Kit v1.4.0
+© 2026 — Windows Auto Maintenance Kit v1.5.0

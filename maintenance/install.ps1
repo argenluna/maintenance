@@ -183,7 +183,7 @@ try {
   $ws = New-Object -ComObject WScript.Shell
   $defs = @(
     @{ Name = '자동 유지보수 점검.lnk'; Script = $runNow; Desc = '지금 바로 점검하고 결과를 보여줍니다' },
-    @{ Name = '자동 유지보수 피드백.lnk'; Script = $feedback; Desc = '민감정보를 지운 피드백 파일을 만들어 GitHub에 올릴 수 있게 합니다' },
+    @{ Name = '자동 유지보수 피드백.lnk'; Script = $feedback; Desc = '개인정보·위험코드를 지운 뒤 동의/비동의를 선택해 GitHub에 올립니다' },
     @{ Name = '자동 유지보수 제거.lnk'; Script = $uninstall; Desc = '자동 점검을 끄고 바로가기를 지웁니다' }
   )
   foreach ($d in $defs) {
