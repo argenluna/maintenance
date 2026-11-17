@@ -21,6 +21,11 @@
 #  - 실행 결과(성공/실패/비동의·URL·오류·차단 건수)를 바탕화면
 #    "자동유지보수_피드백상태.txt" 에 덮어써서 남기고, 콘솔에도 배너로 표시한다.
 #  - Discussion 본문 하단에 버전·시각·안전검증 결과 메타데이터를 붙인다.
+#  v1.6.0 (2026-11-18) 시스템 언어 대응
+#  - Windows UI 언어가 한국어면 한국어, 아니면 영어로 출력한다.
+#    SelfTest 결과(테스트 결과), 상태 파일, 콘솔 배너가 언어를 따라간다.
+#  - 바탕화면 바로가기도 한국어=자동 유지보수 점검/제거/피드백,
+#    그 외 언어=maintenance / maintenance remove / maintenance feedback.
 #  - PowerShell 5.1 호환 / UTF-8 BOM 필수.
 #
 #  사용법:
@@ -70,6 +75,41 @@ function Get-KitVersionText {
     }
   } catch { }
   return 'vunknown'
+}
+
+# --- Windows UI 언어 감지: 한국어면 'ko', 아니면 'en' ---
+# 우선순위: CurrentUICulture → 사용자 언어 목록 → CurrentCulture → 시스템 로캘
+function Get-KitLanguage {
+  $tags = @()
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentUICulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $l = @(Get-WinUserLanguageList) | Select-Object -First 1
+    if ($l -and -not [string]::IsNullOrWhiteSpace($l.LanguageTag)) { $tags += $l.LanguageTag }
+  } catch { }
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentCulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $t = (Get-WinSystemLocale).Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  # 주의: PowerShell 5.1 의 CurrentUICulture 는 설치 언어(en-US)를 반환해
+  # 실제 Windows 언어와 다를 수 있다. 따라서 첫 값만 보지 말고 모든 후보를 훑는다.
+  foreach ($tag in @($tags | Where-Object { $_ })) {
+    if ($tag -match '^ko([-_]|$)') { return 'ko' }
+  }
+  return 'en'
+}
+
+$kitLang = Get-KitLanguage
+function L {
+  param([string]$Ko, [string]$En)
+  if ($kitLang -eq 'ko') { return $Ko }
+  return $En
 }
 
 # ------------------------------------------------------------
@@ -123,24 +163,25 @@ function Sanitize-FeedbackText {
   $kinds = New-Object System.Collections.ArrayList
 
   $patterns = @(
-    @{ Name = 'HTML/스크립트태그'; Regex = '(?i)<\s*/?\s*(script|iframe|object|embed|svg|link|meta|style)\b[^>]*>' }
-    @{ Name = '이벤트핸들러';      Regex = '(?i)\bon(?:error|load|click|mouseover|focus|submit)\s*=' }
-    @{ Name = 'JS/데이터스킴';     Regex = '(?i)\b(?:javascript|vbscript|data:text/html)\s*:' }
-    @{ Name = 'HTML엔티티';        Regex = '(?i)&#(?:x[0-9a-f]+|[0-9]+);' }
-    @{ Name = '인코딩PowerShell';  Regex = '(?i)-(?:enc|encodedcommand)\s+[A-Za-z0-9+/=]{8,}' }
-    @{ Name = '코드실행cmdlet';    Regex = '(?i)\b(?:Invoke-Expression|FromBase64String|DownloadString|DownloadFile|Set-ExecutionPolicy|Add-Type|New-Object\s+System\.Net\.WebClient)\b|\bIEX\s*\(' }
-    @{ Name = 'eval계열';          Regex = '(?i)\b(?:eval|exec|system|shell_exec|os\.system|subprocess\.)\s*\(' }
-    @{ Name = '긴base64블롭';      Regex = '\b[A-Za-z0-9+/]{100,}={0,2}\b' }
-    @{ Name = '악성마크다운링크';  Regex = '!?\[[^\]]{0,200}\]\(\s*(?:javascript|data|vbscript):' }
-    @{ Name = '셸주입';            Regex = '(?i)(?:\|\s*(?:sh|bash|cmd|powershell)\b|&&\s*\w+|`\s*\w+|\$\((?:curl|wget|bash)\b)' }
+    @{ Name = 'HTML/스크립트태그'; En = 'HTML/script tag';      Regex = '(?i)<\s*/?\s*(script|iframe|object|embed|svg|link|meta|style)\b[^>]*>' }
+    @{ Name = '이벤트핸들러';      En = 'Event handler';        Regex = '(?i)\bon(?:error|load|click|mouseover|focus|submit)\s*=' }
+    @{ Name = 'JS/데이터스킴';     En = 'JS/data scheme';       Regex = '(?i)\b(?:javascript|vbscript|data:text/html)\s*:' }
+    @{ Name = 'HTML엔티티';        En = 'HTML entity';          Regex = '(?i)&#(?:x[0-9a-f]+|[0-9]+);' }
+    @{ Name = '인코딩PowerShell';  En = 'Encoded PowerShell';   Regex = '(?i)-(?:enc|encodedcommand)\s+[A-Za-z0-9+/=]{8,}' }
+    @{ Name = '코드실행cmdlet';    En = 'Code-exec cmdlet';     Regex = '(?i)\b(?:Invoke-Expression|FromBase64String|DownloadString|DownloadFile|Set-ExecutionPolicy|Add-Type|New-Object\s+System\.Net\.WebClient)\b|\bIEX\s*\(' }
+    @{ Name = 'eval계열';          En = 'eval family';          Regex = '(?i)\b(?:eval|exec|system|shell_exec|os\.system|subprocess\.)\s*\(' }
+    @{ Name = '긴base64블롭';      En = 'Long base64 blob';     Regex = '\b[A-Za-z0-9+/]{100,}={0,2}\b' }
+    @{ Name = '악성마크다운링크';  En = 'Malicious markdown link'; Regex = '!?\[[^\]]{0,200}\]\(\s*(?:javascript|data|vbscript):' }
+    @{ Name = '셸주입';            En = 'Shell injection';      Regex = '(?i)(?:\|\s*(?:sh|bash|cmd|powershell)\b|&&\s*\w+|`\s*\w+|\$\((?:curl|wget|bash)\b)' }
   )
 
   foreach ($p in $patterns) {
     $hits = [regex]::Matches($result, $p.Regex)
     if ($hits.Count -gt 0) {
       $total += $hits.Count
-      $null = $kinds.Add($p.Name)
-      $result = [regex]::Replace($result, $p.Regex, ('<BLOCKED:' + $p.Name + '>'))
+      $label = L $p.Name $p.En
+      $null = $kinds.Add($label)
+      $result = [regex]::Replace($result, $p.Regex, ('<BLOCKED:' + $label + '>'))
     }
   }
   return @{ Text = $result; Blocked = $total; Kinds = @($kinds) }
@@ -154,17 +195,18 @@ function Write-FeedbackStatus {
     [string]$Url = ''
   )
   $ver = Get-KitVersionText
+  $now = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
   $lines = @()
   $lines += '=========================================='
-  $lines += '  자동 유지보수 - 피드백 실행 결과'
+  $lines += (L '  자동 유지보수 - 피드백 실행 결과' '  Auto Maintenance - Feedback run result')
   $lines += '=========================================='
-  $lines += "실행 시각: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-  $lines += "키트 버전: $ver"
-  $lines += "결과: $ResultText"
-  if ($Url)        { $lines += "업로드 주소: $Url" }
-  if ($Detail)     { $lines += "상세: $Detail" }
+  $lines += (L "실행 시각: $now" "Run time: $now")
+  $lines += (L "키트 버전: $ver" "Kit version: $ver")
+  $lines += (L "결과: $ResultText" "Result: $ResultText")
+  if ($Url)        { $lines += (L "업로드 주소: $Url" "Upload URL: $Url") }
+  if ($Detail)     { $lines += (L "상세: $Detail" "Detail: $Detail") }
   $lines += ''
-  $lines += '이 파일은 마지막 피드백 실행 결과를 덮어써서 보여줍니다.'
+  $lines += (L '이 파일은 마지막 피드백 실행 결과를 덮어써서 보여줍니다.' 'This file is overwritten with the latest feedback run result.')
   try {
     [IO.File]::WriteAllText($statusPath, ($lines -join "`r`n"), (New-Object System.Text.UTF8Encoding($true)))
   } catch { }
@@ -173,16 +215,16 @@ function Write-FeedbackStatus {
 # --- 자체 검사 ---
 if ($SelfTest) {
   $cases = @(
-    @{ Name = '사용자 경로';   In = 'C:\Users\dal04\AppData\Local\Edge\Cache\x'; MustNot = @('dal04'); Must = @('C:\Users\<USER>') },
-    @{ Name = '도메인\사용자'; In = 'User: CRIS\dal04';                          MustNot = @('CRIS', 'dal04'); Must = @('<DOMAIN>\<USER>') },
-    @{ Name = 'hosts 도메인';  In = '0.0.0.0 *.dc-telemetry.net';                MustNot = @('dc-telemetry'); Must = @('0.0.0.0 <HOST_REDACTED>') },
-    @{ Name = '이메일';        In = 'mail: test.user@example.com';               MustNot = @('example.com'); Must = @('<EMAIL>') },
-    @{ Name = 'MAC';           In = 'mac AA:BB:CC:DD:EE:FF';                    MustNot = @('AA:BB:CC'); Must = @('<MAC>') },
-    @{ Name = 'IP';            In = 'gateway 192.168.0.1';                      MustNot = @('192.168.0.1'); Must = @('<IP>') },
-    @{ Name = '시리얼';        In = 'Serial: AB12CD34EF56';                     MustNot = @('AB12CD34EF56'); Must = @('<REDACTED>') },
-    @{ Name = '컴퓨터명';      In = 'DESKTOP-ABC123';                           MustNot = @('DESKTOP-ABC123'); Must = @('<HOST>') },
-    @{ Name = 'KB는 유지';     In = '마지막 패치 KB5132061';                    MustNot = @(); Must = @('KB5132061') },
-    @{ Name = '하드웨어 유지'; In = 'Intel(R) Wi-Fi 6 AX200 160MHz';            MustNot = @(); Must = @('AX200') }
+    @{ Ko = '사용자 경로';   En = 'User path';        In = 'C:\Users\dal04\AppData\Local\Edge\Cache\x'; MustNot = @('dal04'); Must = @('C:\Users\<USER>') },
+    @{ Ko = '도메인\사용자'; En = 'Domain\user';      In = 'User: CRIS\dal04';                          MustNot = @('CRIS', 'dal04'); Must = @('<DOMAIN>\<USER>') },
+    @{ Ko = 'hosts 도메인';  En = 'hosts domain';     In = '0.0.0.0 *.dc-telemetry.net';                MustNot = @('dc-telemetry'); Must = @('0.0.0.0 <HOST_REDACTED>') },
+    @{ Ko = '이메일';        En = 'Email';            In = 'mail: test.user@example.com';               MustNot = @('example.com'); Must = @('<EMAIL>') },
+    @{ Ko = 'MAC';           En = 'MAC';              In = 'mac AA:BB:CC:DD:EE:FF';                    MustNot = @('AA:BB:CC'); Must = @('<MAC>') },
+    @{ Ko = 'IP';            En = 'IP';               In = 'gateway 192.168.0.1';                      MustNot = @('192.168.0.1'); Must = @('<IP>') },
+    @{ Ko = '시리얼';        En = 'Serial';           In = 'Serial: AB12CD34EF56';                     MustNot = @('AB12CD34EF56'); Must = @('<REDACTED>') },
+    @{ Ko = '컴퓨터명';      En = 'Computer name';    In = 'DESKTOP-ABC123';                           MustNot = @('DESKTOP-ABC123'); Must = @('<HOST>') },
+    @{ Ko = 'KB는 유지';     En = 'KB kept';          In = '마지막 패치 KB5132061';                    MustNot = @(); Must = @('KB5132061') },
+    @{ Ko = '하드웨어 유지'; En = 'Hardware kept';    In = 'Intel(R) Wi-Fi 6 AX200 160MHz';            MustNot = @(); Must = @('AX200') }
   )
   $pass = 0; $fail = 0
   foreach ($c in $cases) {
@@ -190,27 +232,32 @@ if ($SelfTest) {
     $ok = $true
     foreach ($s in $c.MustNot) { if ($out -like "*$s*") { $ok = $false } }
     foreach ($s in $c.Must)    { if ($out -notlike "*$s*") { $ok = $false } }
-    if ($ok) { $pass++; Write-Host "PASS  $($c.Name)" } else { $fail++; Write-Host "FAIL  $($c.Name)  => $out" }
+    $nm = L $c.Ko $c.En
+    if ($ok) { $pass++; Write-Host "PASS  $nm" } else { $fail++; Write-Host "FAIL  $nm  => $out" }
   }
 
   # 안전검증 5건
   $safeCases = @(
-    @{ Name = '스크립트태그 차단'; In = '<script>alert(1)</script>'; MustNot = @('<script>') },
-    @{ Name = '자바스크립트 URL';  In = '[click](javascript:alert(1))'; MustNot = @('javascript:') },
-    @{ Name = 'IEX 실행 차단';     In = 'IEX([Text.Encoding]::UTF8.GetString($x))'; MustNot = @('IEX(') },
-    @{ Name = '인코딩 명령 차단';  In = 'powershell -enc SGVsbG8gV29ybGQ='; MustNot = @('-enc') },
-    @{ Name = '정상 진단 유지';    In = '상태: PASS / KB5132061 / Intel AX200'; MustNot = @(); Must = @('PASS', 'KB5132061') }
+    @{ Ko = '스크립트태그 차단'; En = 'Script tag blocked';  In = '<script>alert(1)</script>'; MustNot = @('<script>') },
+    @{ Ko = '자바스크립트 URL';  En = 'JavaScript URL';      In = '[click](javascript:alert(1))'; MustNot = @('javascript:') },
+    @{ Ko = 'IEX 실행 차단';     En = 'IEX execution';       In = 'IEX([Text.Encoding]::UTF8.GetString($x))'; MustNot = @('IEX(') },
+    @{ Ko = '인코딩 명령 차단';  En = 'Encoded command';     In = 'powershell -enc SGVsbG8gV29ybGQ='; MustNot = @('-enc') },
+    @{ Ko = '정상 진단 유지';    En = 'Valid data kept';     In = '상태: PASS / KB5132061 / Intel AX200'; MustNot = @(); Must = @('PASS', 'KB5132061') }
   )
   foreach ($c in $safeCases) {
     $s = Sanitize-FeedbackText -Text $c.In
     $ok = $true
     foreach ($x in $c.MustNot) { if ($s.Text -like "*$x*") { $ok = $false } }
     foreach ($x in $c.Must)    { if ($s.Text -notlike "*$x*") { $ok = $false } }
-    if ($ok) { $pass++; Write-Host "PASS  $($c.Name)" } else { $fail++; Write-Host "FAIL  $($c.Name)  => $($s.Text)" }
+    $nm = L $c.Ko $c.En
+    if ($ok) { $pass++; Write-Host "PASS  $nm" } else { $fail++; Write-Host "FAIL  $nm  => $($s.Text)" }
   }
 
   Write-Host ""
-  Write-Host "자체검사: $pass PASS / $fail FAIL (마스킹 10 + 안전 5)"
+  $summary = L '자체검사: {0} PASS / {1} FAIL (마스킹 10 + 안전 5)' 'Self-test: {0} PASS / {1} FAIL (10 masking + 5 safety)'
+  Write-Host ($summary -f $pass, $fail)
+  $langLine = L '시스템 언어: {0} → {1}' 'System language: {0} → {1}'
+  Write-Host ($langLine -f $kitLang, (L '한국어' 'English'))
   if ($fail -gt 0) { exit 1 }
   exit 0
 }
@@ -236,9 +283,9 @@ function Get-GitHubToken {
   } catch { }
 
   Write-Host ''
-  Write-Host 'GitHub 토큰이 필요합니다(한 번만 입력하면 이 창에서만 사용하고 저장하지 않습니다).'
-  Write-Host '발급: https://github.com/settings/tokens → "Generate new token (classic)" → repo 체크 → Generate token'
-  $sec = Read-Host '토큰을 붙여넣으세요 (입력 내용은 화면에 표시되지 않습니다)' -AsSecureString
+  Write-Host (L 'GitHub 토큰이 필요합니다(한 번만 입력하면 이 창에서만 사용하고 저장하지 않습니다).' 'A GitHub token is needed (enter once; used only in this window, never stored).')
+  Write-Host (L '발급: https://github.com/settings/tokens → "Generate new token (classic)" → repo 체크 → Generate token' 'Get one: https://github.com/settings/tokens → "Generate new token (classic)" → check repo → Generate token')
+  $sec = Read-Host (L '토큰을 붙여넣으세요 (입력 내용은 화면에 표시되지 않습니다)' 'Paste your token (input is hidden)') -AsSecureString
   $plain = (New-Object System.Net.NetworkCredential('', $sec)).Password
   return $plain
 }
@@ -253,7 +300,7 @@ function Invoke-GitHubGraphQL {
   $payload = @{ query = $Query; variables = $Variables } | ConvertTo-Json -Depth 8
   $headers = @{
     'Authorization' = ('bearer ' + $TokenValue)
-    'User-Agent'    = 'AutoMaintenance-Feedback/1.5'
+    'User-Agent'    = 'AutoMaintenance-Feedback/1.6'
     'Accept'        = 'application/vnd.github+json'
   }
   $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
@@ -261,7 +308,7 @@ function Invoke-GitHubGraphQL {
     -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 30
   if ($resp.errors) {
     $msgs = @($resp.errors | ForEach-Object { $_.message }) -join ' / '
-    throw ("GitHub GraphQL 오류: " + $msgs)
+    throw ((L 'GitHub GraphQL 오류: ' 'GitHub GraphQL error: ') + $msgs)
   }
   return $resp.data
 }
@@ -329,21 +376,21 @@ function Get-LatestResultFile {
 
 $source = Get-LatestResultFile -Explicit $ResultPath
 if (-not $source) {
-  $msg = '마스킹할 결과 파일을 찾지 못했습니다.'
+  $msg = L '마스킹할 결과 파일을 찾지 못했습니다.' 'No result file found to mask.'
   Write-Host $msg
-  Write-Host "  찾은 위치: $desktop, $desktop\자동점검결과, $root\Simple maintenance\logs"
-  Write-Host '  먼저 "자동 유지보수 점검"을 한 번 실행하거나, -ResultPath 로 파일을 지정하세요.'
-  Write-FeedbackStatus -ResultText '실패 - 결과 파일 없음' -Detail $msg
-  Read-Host 'Enter 키를 누르면 닫힙니다'
+  Write-Host (L "  찾은 위치: $desktop, $desktop\자동점검결과, $root\Simple maintenance\logs" "  Looked in: $desktop, $desktop\자동점검결과, $root\Simple maintenance\logs")
+  Write-Host (L '  먼저 "자동 유지보수 점검"을 한 번 실행하거나, -ResultPath 로 파일을 지정하세요.' '  Run a check first, or pass -ResultPath with a file.')
+  Write-FeedbackStatus -ResultText (L '실패 - 결과 파일 없음' 'Failed - no result file') -Detail $msg
+  Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
   exit 1
 }
 
 try {
   $raw = Get-Content -LiteralPath $source.FullName -Raw -Encoding UTF8
 } catch {
-  Write-Host "결과 파일을 읽을 수 없습니다: $($_.Exception.Message)"
-  Write-FeedbackStatus -ResultText '실패 - 결과 파일 읽기 오류' -Detail $_.Exception.Message
-  Read-Host 'Enter 키를 누르면 닫힙니다'
+  Write-Host (L "결과 파일을 읽을 수 없습니다: $($_.Exception.Message)" "Cannot read result file: $($_.Exception.Message)")
+  Write-FeedbackStatus -ResultText (L '실패 - 결과 파일 읽기 오류' 'Failed - result file read error') -Detail $_.Exception.Message
+  Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
   exit 1
 }
 
@@ -352,7 +399,7 @@ $masked = ConvertTo-MaskedText -Text $raw
 $safety = Sanitize-FeedbackText -Text $masked
 $safeText = $safety.Text
 $blockedCount = $safety.Blocked
-$blockedKinds = if ($safety.Kinds.Count -gt 0) { ($safety.Kinds -join ', ') } else { '없음' }
+$blockedKinds = if ($safety.Kinds.Count -gt 0) { ($safety.Kinds -join ', ') } else { (L '없음' 'none') }
 
 $ver = Get-KitVersionText
 $stamp = Get-Date -Format 'yyyyMMdd_HHmm'
@@ -360,20 +407,20 @@ $createdAt = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 
 $out = @()
 $out += '=========================================='
-$out += '  자동 유지보수 - 피드백 내보내기 (마스킹 + 안전검증)'
+$out += (L '  자동 유지보수 - 피드백 내보내기 (마스킹 + 안전검증)' '  Auto Maintenance - Feedback export (masked + sanitized)')
 $out += '=========================================='
-$out += "생성: $createdAt"
-$out += "키트 버전: $ver"
-$out += "원본 결과: $($source.Name)  ($($source.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
-$out += "안전 검증: 위험 패턴 $blockedCount 건 제거  [$blockedKinds]"
+$out += (L "생성: $createdAt" "Created: $createdAt")
+$out += (L "키트 버전: $ver" "Kit version: $ver")
+$out += (L "원본 결과: $($source.Name)  ($($source.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))" "Source result: $($source.Name)  ($($source.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))")
+$out += (L "안전 검증: 위험 패턴 $blockedCount 건 제거  [$blockedKinds]" "Safety check: $blockedCount risky pattern(s) removed  [$blockedKinds]")
 $out += ''
-$out += '[ 올리기 전에 - 30초만 확인해 주세요 ]'
-$out += ' 1. 이 파일은 민감정보와 위험 코드를 자동으로 지웠습니다. 그래도 한 번 훑어보세요.'
-$out += '    (하드웨어 모델명/드라이버 버전은 진단용으로 남아 있습니다. 민감하면 지우세요.)'
-$out += ' 2. 동의(y)하면 이 내용이 GitHub Discussion 에 자동으로 올라갑니다.'
-$out += '    비동의(n/Enter)하면 업로드하지 않고 이 파일을 바탕화면에 남깁니다.'
+$out += (L '[ 올리기 전에 - 30초만 확인해 주세요 ]' '[ Before posting - please review for 30 seconds ]')
+$out += (L ' 1. 이 파일은 민감정보와 위험 코드를 자동으로 지웠습니다. 그래도 한 번 훑어보세요.' ' 1. Sensitive info and risky code were removed automatically. Please still give it a quick look.')
+$out += (L '    (하드웨어 모델명/드라이버 버전은 진단용으로 남아 있습니다. 민감하면 지우세요.)' '    (Hardware model/driver versions are kept for diagnosis. Delete them if sensitive.)')
+$out += (L ' 2. 동의(y)하면 이 내용이 GitHub Discussion 에 자동으로 올라갑니다.' ' 2. If you consent (y), this is uploaded to a GitHub Discussion automatically.')
+$out += (L '    비동의(n/Enter)하면 업로드하지 않고 이 파일을 바탕화면에 남깁니다.' '    If you decline (n/Enter), it is not uploaded and the file stays on the Desktop.')
 $out += ' 3. https://github.com/argenluna/maintenance/discussions'
-$out += ' 4. 원본 결과 txt(마스킹 안 된 것)는 올리지 않습니다.'
+$out += (L ' 4. 원본 결과 txt(마스킹 안 된 것)는 올리지 않습니다.' ' 4. The original (unmasked) result txt is not uploaded.')
 $out += ''
 $out += '=========================================='
 $out += '[ 고지 / 면책 — GitHub 에 올리기 전에 읽어주세요 ]'
@@ -410,80 +457,80 @@ $out += '· 按原样(AS IS)提供，不作保证，使用风险自负。'
 $out += '· 以下内容已做机器脱敏，不能保证 100% 完整，发布前请务必自行检查。'
 $out += ''
 $out += '------------------------------------------'
-$out += '[ 마스킹된 점검 결과 ]'
+$out += (L '[ 마스킹된 점검 결과 ]' '[ Masked check result ]')
 $out += '------------------------------------------'
 $out += $safeText
 $out += ''
 $out += '------------------------------------------'
-$out += '[ 내 한 줄 ]   <-- 여기에 직접 써주세요'
+$out += (L '[ 내 한 줄 ]   <-- 여기에 직접 써주세요' '[ My one line ]   <-- write here yourself')
 $out += '------------------------------------------'
-$out += '좋았던 점 / 아쉬운 점 / 이상했던 동작:'
+$out += (L '좋았던 점 / 아쉬운 점 / 이상했던 동작:' 'What was good / what was lacking / odd behavior:')
 $out += ''
 $out += ''
-$out += '(예: "자동으로 고친 게 5건이나 있어서 좋았는데, 왜 고쳤는지 설명이 더 있으면 좋겠어요")'
+$out += (L '(예: "자동으로 고친 게 5건이나 있어서 좋았는데, 왜 고쳤는지 설명이 더 있으면 좋겠어요")' '(e.g. "It auto-fixed 5 things, which was great, but I wish it explained why it fixed them")')
 $out += ''
 $out += '------------------------------------------'
-$out += '[ 자동 업로드 정보 ]'
+$out += (L '[ 자동 업로드 정보 ]' '[ Auto-upload info ]')
 $out += '------------------------------------------'
-$out += "키트 버전: $ver"
-$out += "생성 시각: $createdAt"
-$out += "안전 검증: 위험 패턴 $blockedCount 건 제거 [$blockedKinds]"
+$out += (L "키트 버전: $ver" "Kit version: $ver")
+$out += (L "생성 시각: $createdAt" "Created: $createdAt")
+$out += (L "안전 검증: 위험 패턴 $blockedCount 건 제거 [$blockedKinds]" "Safety check: $blockedCount risky pattern(s) removed [$blockedKinds]")
 
 $outPath = Join-Path $desktop ("자동유지보수_피드백_$stamp.txt")
 try {
   $utf8bom = New-Object System.Text.UTF8Encoding($true)
   [System.IO.File]::WriteAllText($outPath, ($out -join "`r`n"), $utf8bom)
 } catch {
-  $m = "피드백 파일 저장 실패: $($_.Exception.Message)"
+  $m = L "피드백 파일 저장 실패: $($_.Exception.Message)" "Failed to save feedback file: $($_.Exception.Message)"
   Write-Host $m
-  Write-FeedbackStatus -ResultText '실패 - 피드백 파일 저장 오류' -Detail $_.Exception.Message
-  Read-Host 'Enter 키를 누르면 닫힙니다'
+  Write-FeedbackStatus -ResultText (L '실패 - 피드백 파일 저장 오류' 'Failed - feedback file save error') -Detail $_.Exception.Message
+  Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
   exit 1
 }
 
 Write-Host ''
 Write-Host '=========================================='
-Write-Host '  피드백 파일을 만들었습니다'
+Write-Host (L '  피드백 파일을 만들었습니다' '  Feedback file created')
 Write-Host '=========================================='
 Write-Host "  $outPath"
 Write-Host ''
-Write-Host "안전 검증: 위험 패턴 $blockedCount 건 제거 [$blockedKinds]"
+Write-Host (L "안전 검증: 위험 패턴 $blockedCount 건 제거 [$blockedKinds]" "Safety check: $blockedCount risky pattern(s) removed [$blockedKinds]")
 Write-Host ''
 
 $uploaded = $false
 
 if ($NoUpload) {
-  Write-Host '-NoUpload 지정: GitHub 에 올리지 않고 파일을 유지합니다.'
-  Write-FeedbackStatus -ResultText '완료 - 파일만 생성 (업로드 안 함)' -Detail "-NoUpload / 바탕화면에 유지: $outPath / 안전검증 차단 $blockedCount 건"
+  Write-Host (L '-NoUpload 지정: GitHub 에 올리지 않고 파일을 유지합니다.' '-NoUpload specified: not uploading to GitHub; keeping the file.')
+  Write-FeedbackStatus -ResultText (L '완료 - 파일만 생성 (업로드 안 함)' 'Done - file created only (no upload)') -Detail (L "-NoUpload / 바탕화면에 유지: $outPath / 안전검증 차단 $blockedCount 건" "-NoUpload / kept on Desktop: $outPath / safety blocked $blockedCount")
 } else {
   $consent = $false
   if ($Yes) {
     $consent = $true
   } else {
-    $answer = Read-Host '이 내용을 GitHub 에 자동 업로드할까요? (y = 업로드 후 이 파일 삭제 / n 또는 Enter = 업로드 안 함, 파일 유지)'
+    $answer = Read-Host (L '이 내용을 GitHub 에 자동 업로드할까요? (y = 업로드 후 이 파일 삭제 / n 또는 Enter = 업로드 안 함, 파일 유지)' 'Upload this to GitHub automatically? (y = upload then delete this file / n or Enter = no upload, keep file)')
     if ($answer -match '^(y|Y|ㅛ|예)$') { $consent = $true }
   }
 
   if (-not $consent) {
-    Write-Host '업로드하지 않았습니다. 피드백 파일을 바탕화면에 남겨 둡니다.'
-    Write-Host '직접 확인·편집한 뒤 https://github.com/argenluna/maintenance/discussions 에 붙여넣을 수 있습니다.'
-    Write-FeedbackStatus -ResultText '비동의 - 업로드 안 함' -Detail "사용자가 업로드를 선택하지 않음 / 파일 유지: $outPath / 안전검증 차단 $blockedCount 건"
+    Write-Host (L '업로드하지 않았습니다. 피드백 파일을 바탕화면에 남겨 둡니다.' 'Not uploaded. The feedback file stays on the Desktop.')
+    Write-Host (L '직접 확인·편집한 뒤 https://github.com/argenluna/maintenance/discussions 에 붙여넣을 수 있습니다.' 'You can review/edit it yourself, then paste it at https://github.com/argenluna/maintenance/discussions')
+    Write-FeedbackStatus -ResultText (L '비동의 - 업로드 안 함' 'Declined - no upload') -Detail (L "사용자가 업로드를 선택하지 않음 / 파일 유지: $outPath / 안전검증 차단 $blockedCount 건" "User did not choose upload / file kept: $outPath / safety blocked $blockedCount")
   } else {
     try {
       $tok = Get-GitHubToken -Given $Token
       $target = Get-DiscussionTarget -TokenValue $tok
       $bodyText = Get-Content -LiteralPath $outPath -Raw -Encoding UTF8
       if ($bodyText.Length -gt 60000) {
-        $bodyText = $bodyText.Substring(0, 60000) + "`r`n...(본문이 길어 뒤는 잘렸습니다)"
+        $bodyText = $bodyText.Substring(0, 60000) + (L "`r`n...(본문이 길어 뒤는 잘렸습니다)" "`r`n...(truncated: body too long)")
       }
       $title = "[피드백/Feedback] $ver - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 
       if ($DryRun) {
-        Write-Host '[DryRun] 실제 업로드는 하지 않습니다.'
-        Write-Host "  대상: $ghOwner/$ghRepo (repoId=$($target.RepoId), category=$($target.CategoryId))"
-        Write-Host "  제목: $title"
-        Write-Host "  본문 길이: $($bodyText.Length) 자 / 안전검증 차단: $blockedCount 건"
-        Write-FeedbackStatus -ResultText 'DryRun - 업로드 안 함' -Detail "대상 $ghOwner/$ghRepo / 본문 $($bodyText.Length)자 / 안전검증 차단 $blockedCount 건"
+        Write-Host (L '[DryRun] 실제 업로드는 하지 않습니다.' '[DryRun] No actual upload is performed.')
+        Write-Host (L "  대상: $ghOwner/$ghRepo (repoId=$($target.RepoId), category=$($target.CategoryId))" "  Target: $ghOwner/$ghRepo (repoId=$($target.RepoId), category=$($target.CategoryId))")
+        Write-Host (L "  제목: $title" "  Title: $title")
+        Write-Host (L "  본문 길이: $($bodyText.Length) 자 / 안전검증 차단: $blockedCount 건" "  Body length: $($bodyText.Length) chars / safety blocked: $blockedCount")
+        Write-FeedbackStatus -ResultText (L 'DryRun - 업로드 안 함' 'DryRun - no upload') -Detail (L "대상 $ghOwner/$ghRepo / 본문 $($bodyText.Length)자 / 안전검증 차단 $blockedCount 건" "Target $ghOwner/$ghRepo / body $($bodyText.Length) chars / safety blocked $blockedCount")
       } else {
         $url = New-FeedbackDiscussion -TokenValue $tok -RepoId $target.RepoId `
           -CategoryId $target.CategoryId -Title $title -Body $bodyText
@@ -491,30 +538,30 @@ if ($NoUpload) {
         $uploaded = $true
         Write-Host ''
         Write-Host '=========================================='
-        Write-Host '  실행 결과: 성공 (업로드 완료)'
+        Write-Host (L '  실행 결과: 성공 (업로드 완료)' '  Result: SUCCESS (upload complete)')
         Write-Host '=========================================='
         Write-Host "  $url"
-        Write-Host "  안전검증: 위험 패턴 $blockedCount 건 제거"
-        Write-Host '  피드백 파일 삭제 완료.'
-        Write-FeedbackStatus -ResultText '성공 - GitHub 업로드 완료' -Url $url -Detail "안전검증 차단 $blockedCount 건 / 피드백 파일 삭제됨"
+        Write-Host (L "  안전검증: 위험 패턴 $blockedCount 건 제거" "  Safety check: $blockedCount risky pattern(s) removed")
+        Write-Host (L '  피드백 파일 삭제 완료.' '  Feedback file deleted.')
+        Write-FeedbackStatus -ResultText (L '성공 - GitHub 업로드 완료' 'SUCCESS - GitHub upload complete') -Url $url -Detail (L "안전검증 차단 $blockedCount 건 / 피드백 파일 삭제됨" "safety blocked $blockedCount / feedback file deleted")
       }
     } catch {
       $errMsg = $_.Exception.Message
       Write-Host ''
       Write-Host '=========================================='
-      Write-Host '  실행 결과: 실패 (업로드 오류)'
+      Write-Host (L '  실행 결과: 실패 (업로드 오류)' '  Result: FAILED (upload error)')
       Write-Host '=========================================='
       Write-Host "  $errMsg"
-      Write-Host '  피드백 파일을 삭제하지 않고 유지합니다.'
-      Write-FeedbackStatus -ResultText '실패 - 업로드 오류' -Detail "$errMsg / 파일 유지: $outPath / 안전검증 차단 $blockedCount 건"
+      Write-Host (L '  피드백 파일을 삭제하지 않고 유지합니다.' '  Keeping the feedback file (not deleted).')
+      Write-FeedbackStatus -ResultText (L '실패 - 업로드 오류' 'FAILED - upload error') -Detail (L "$errMsg / 파일 유지: $outPath / 안전검증 차단 $blockedCount 건" "$errMsg / file kept: $outPath / safety blocked $blockedCount")
     }
   }
 }
 
 if (-not $uploaded -and -not $NoOpen) {
-  try { Invoke-Item -LiteralPath $outPath } catch { Write-Host "(메모장 자동 실행 실패 - 위 파일을 직접 여세요)" }
+  try { Invoke-Item -LiteralPath $outPath } catch { Write-Host (L "(메모장 자동 실행 실패 - 위 파일을 직접 여세요)" "(Could not open Notepad - please open the file above manually)") }
 }
 
 Write-Host ''
-Write-Host "실행 결과 상세: $statusPath"
-Read-Host 'Enter 키를 누르면 닫힙니다'
+Write-Host (L "실행 결과 상세: $statusPath" "Run result details: $statusPath")
+Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')

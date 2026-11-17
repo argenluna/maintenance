@@ -19,9 +19,22 @@ OpenCode-Maintenance (예약: 매일 04:00 + 로그온 5분 후)
   └─ run-maintenance.ps1      주기(cadence) 확인, status.json 갱신
        └─ Simple maintenance\maintenance.ps1 -Mode scheduled   실제 점검/자동 수리
 
-run-now.ps1 (바탕화면 "자동 유지보수 점검")  → run-maintenance.ps1 -Force → 즉시 점검 + 리포트
-uninstall.ps1 (바탕화면 "자동 유지보수 제거") → 예약 작업/바로가기 제거
+run-now.ps1 (바탕화면 "자동 유지보수 점검" / "maintenance")  → run-maintenance.ps1 -Force → 즉시 점검 + 리포트
+uninstall.ps1 (바탕화면 "자동 유지보수 제거" / "maintenance remove") → 예약 작업/바로가기 제거
 ```
+
+> **시스템 언어 대응 (v1.6.0)** — Windows 언어를 감지해 한국어면 한글 이름, 그 외 언어면 영어 이름으로
+> 바탕화면 바로가기를 만듭니다. SelfTest(테스트 결과)·피드백 상태 파일·콘솔 메시지도 같은 언어를 따릅니다.
+>
+> | 용도 | 한국어 | 그 외 언어 |
+> |---|---|---|
+> | 점검 | `자동 유지보수 점검.lnk` | `maintenance.lnk` |
+> | 제거 | `자동 유지보수 제거.lnk` | `maintenance remove.lnk` |
+> | 피드백 | `자동 유지보수 피드백.lnk` | `maintenance feedback.lnk` |
+>
+> 감지 순서: `CurrentUICulture` → `Get-WinUserLanguageList[0]` → `CurrentCulture` → `Get-WinSystemLocale`
+> 중 하나라도 `ko-*`면 한국어, 아니면 영어. (PowerShell 5.1의 UI 문화권은 설치 언어 `en-US`일 수 있어
+> 첫 값만 보지 않고 **모든 후보를 확인**합니다.) 언어를 바꾼 뒤 재설치하면 이전 언어 바로가기는 자동 정리됩니다.
 
 ## 빠른 시작 (컴맹용, 3단계)
 
@@ -63,23 +76,23 @@ uninstall.ps1 (바탕화면 "자동 유지보수 제거") → 예약 작업/바�
 > 확인 위치: 바탕화면 `자동유지보수_*.txt`, 로그는 `logs\runner-YYYY-MM.log`(wrapper) 와
 > `Simple maintenance\logs\maintain-YYYY-MM-DD.log`(본체). 결과 txt 가 없으면 이 두 로그를 보내면 원인을 알 수 있다.
 
-## 버전 (현재 **v1.5.0**, 2026-11-18)
+## 버전 (현재 **v1.6.0**, 2026-11-18)
 
 수정할 때마다 버전을 올린다. **`VERSION` 파일(킷 루트)이 유일한 기준**이고, 각 스크립트가 이 파일을 읽어
 콘솔·결과 txt·로그에 찍는다. "친구 PC에서 어느 버전이 돌았는지"를 파일만 보고 확인할 수 있다.
 
 ```
 VERSION 파일 (2줄)
-  1.5.0
+  1.6.0
   2026-11-18
 ```
 
 | 확인 위치 | 표시 예 |
 |-----------|---------|
-| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v1.5.0 (2026-11-18)` |
-| 결과 txt | `실행: 2026-11-18 12:30` 아래 `버전: v1.5.0 (2026-11-18)` |
-| 실패/안내 txt | `버전: v1.5.0 (2026-11-18)` |
-| 로그 | `maintain-*.log` → `VERSION: v1.5.0 (2026-11-18)`, `runner-*.log` → `Kit version: …` |
+| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v1.6.0 (2026-11-18)` |
+| 결과 txt | `실행: 2026-11-18 12:30` 아래 `버전: v1.6.0 (2026-11-18)` |
+| 실패/안내 txt | `버전: v1.6.0 (2026-11-18)` |
+| 로그 | `maintain-*.log` → `VERSION: v1.6.0 (2026-11-18)`, `runner-*.log` → `Kit version: …` |
 | JSON | `status.json`, `Simple maintenance\last-result.json` 의 `version` |
 | 설치 폴더 | `VERSION` 파일 |
 
@@ -91,7 +104,7 @@ VERSION 파일 (2줄)
 | 기능 추가·동작 변경 | 새 검사 항목, 삭제 확인 방식 변경 | `1.1.x` → `1.2.0` |
 | 구조 변경 | 파일 구성/설정 키 변경(재설치 필요) | `1.x.y` → `2.0.0` |
 
-**ZIP 이름도 버전을 포함한다** — `dist\AutoMaintenance_v1.5.0_20261118.zip`
+**ZIP 이름도 버전을 포함한다** — `dist\AutoMaintenance_v1.6.0_20261118.zip`
 (예전 `AutoMaintenance_20261111.zip` 처럼 날짜만 쓰면, 내용만 바뀌었을 때 최신인지 구분할 수 없다.)
 
 | 버전 | 날짜 | 내용 |
@@ -106,6 +119,7 @@ VERSION 파일 (2줄)
 | 1.3.1 | 2026-11-17 | `logs` 가 **파일**로 남은 옛 설치본에서 로그가 계속 유실되던 문제 — 그 파일을 `logs-legacy-<시각>.txt` 로 이름만 바꿔 보존하고 폴더를 만든다(이 PC 실측) — §12.21 |
 | 1.4.0 | 2026-11-17 | **결과 파일 정리 방식 변경** — 4개 이상이면 최신 것까지 **전부** `자동점검결과` 폴더로 이동(바탕화면에는 이번 결과 1개만), 안내를 결과 txt·콘솔 양쪽에 표시. **3개월(90일) 지난 결과 파일 자동 삭제**(`resultRetentionDays`, 묻지 않음, 이 키트가 만든 결과 txt만) — §12.22 |
 | 1.5.0 | 2026-11-18 | **피드백 GitHub 자동 업로드** — 동의(y)/비동의(n·Enter) 선택, 동의 시 GraphQL `createDiscussion` 로 업로드 후 로컬 파일 삭제. **개인정보 마스킹 + 악성/이상 코드 검증**(`<BLOCKED>` 치환, 15/15 SelfTest). 실행 결과를 바탕화면 `자동유지보수_피드백상태.txt` 에 기록. REST 404 문제를 GraphQL로 해결 |
+| 1.6.0 | 2026-11-18 | **시스템 언어 대응** — 한국어가 아니면 바탕화면 바로가기를 `maintenance` / `maintenance remove` / `maintenance feedback` 로 생성. SelfTest(테스트 결과)·피드백 상태 파일·콘솔·차단 패턴 이름까지 `L(한/영)` 헬퍼로 언어 추종. PowerShell 5.1 UI 문화권이 `en-US`여도 사용자 언어 목록·시스템 로캘을 확인해 한글을 놓치지 않음. 언어 전환 재설치 시 이전 바로가기 양쪽 세트 정리 |
 
 ## 바탕화면 결과 파일 정리 + 자동 실행 콘솔 표시 (2026-11-17, v1.3.0 / v1.4.0)
 
@@ -621,7 +635,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 | `adDnsEnabled` | `false` | DNS 필터링 (**opt-in**) |
 | `adDnsServers` | `["94.140.14.14","94.140.15.15"]` | AdGuard DNS(광고+트래커). IPv4 만 허용 |
 
-## 피드백 내보내기 (v1.5.0) — GitHub 자동 업로드
+## 피드백 내보내기 (v1.6.0) — GitHub 자동 업로드 + 시스템 언어 추종
 
 바탕화면의 **"자동 유지보수 피드백"** 바로가기를 누르면 `feedback.ps1` 이 실행되어
 결과 파일에서 **민감정보와 위험 코드를 지운 사본**을 바탕화면에 만든 뒤,
@@ -650,6 +664,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 - GitHub **REST 는 Discussion 생성을 지원하지 않는다** (`POST /repos/.../discussions` → 404). 따라서 **GraphQL `createDiscussion`** 을 사용한다 (토큰 `repo` 스코프면 충분).
 - 저장소 node ID / General 카테고리 ID 는 GraphQL 로 매번 동적으로 조회한다(조회 실패 시에만 공개 ID fallback).
 - 자체 검사: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (마스킹 10 + 안전검증 5).
+  **v1.6.0**: SelfTest 결과(테스트 결과)·상태 파일·콘솔·`<BLOCKED:...>` 종류 이름이 시스템 언어를 따라갑니다.
+  한국어면 `자체검사: 15 PASS / ...`, 영어면 `Self-test: 15 PASS / ...` 로 출력됩니다.
 - 검증 옵션: `-DryRun` (업로드 없이 대상·payload·차단 건수만 출력), `-NoUpload` (예전처럼 파일만 생성), `-Yes` (동의 질문 생략), `-Token` (테스트용).
 
 Discussions: https://github.com/argenluna/maintenance/discussions

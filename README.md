@@ -1,5 +1,5 @@
-# Windows 자동 유지보수 키트 (v1.5.0)
-# Windows Auto Maintenance Kit (v1.5.0)
+# Windows 자동 유지보수 키트 (v1.6.0)
+# Windows Auto Maintenance Kit (v1.6.0)
 
 🪟🔧✨ 컴퓨터를 잘 모르는 사람도 3단계로 설치하고, 이후에는 아무것도 하지 않아도 6일에 한 번 스스로 점검하는 윈도우 유지보수 도구입니다.
 🪟🔧✨ A Windows maintenance tool that anyone can install in 3 steps, then forget about — it checks itself every 6 days automatically.
@@ -97,6 +97,10 @@ This kit does it **all at once, automatically, and safely**.
    - 자동 점검 끄기: 바탕화면 **"자동 유지보수 제거"** 더블클릭 (로그·설정은 보존)
    - 컴퓨터를 전혀 모른다면: **`maintenance/newbie.txt`** 를 먼저 읽어보세요. 38개 검사를 레고·집·주방 비유로 설명합니다.
 
+> **시스템 언어 자동 감지 (v1.6.0)** — 한국어가 아니면 바탕화면 바로가기가
+> `maintenance` / `maintenance remove` / `maintenance feedback` 으로 만들어집니다.
+> SelfTest 결과·피드백 상태 파일·콘솔 메시지도 시스템 언어를 따릅니다.
+
 **English**
 1. Download the ZIP, extract the **whole folder**, and **double-click `install.cmd`**. (Use `.cmd` — `.ps1` opens in Notepad.)
    - Click **"Yes"** in the blue UAC prompt, then wait for the first check (~1 min).
@@ -105,6 +109,10 @@ This kit does it **all at once, automatically, and safely**.
    - Check now: double-click **"자동 유지보수 점검"** on the Desktop.
    - Disable: double-click **"자동 유지보수 제거"** (logs and settings are kept).
    - Brand new to computers? Read **`maintenance/newbie.txt`** first — it explains all 38 checks with Lego/house/kitchen analogies.
+
+> **System language detection (v1.6.0)** — On non-Korean Windows, the Desktop shortcuts are named
+> `maintenance` / `maintenance remove` / `maintenance feedback`. Self-test results, the feedback
+> status file, and console messages also follow the system language.
 
 ---
 
@@ -167,7 +175,7 @@ Status words:
 - **`n`/Enter(비동의)** → 업로드하지 않고 파일을 바탕화면에 유지합니다. 업로드 실패 시에도 파일을 유지합니다.
 - 실행 결과(성공/실패/비동의·URL·오류·차단 건수)는 바탕화면 **자동유지보수_피드백상태.txt** 에 덮어써서 남습니다.
 - 토큰은 저장하지 않고 `gh auth token` → `GH_TOKEN` → 사용자 입력 순으로 얻습니다. GitHub REST 는 Discussions 생성을 지원하지 않아 **GraphQL `createDiscussion`** 을 사용합니다.
-- 셀프 테스트: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (마스킹 10 + 안전검증 5)
+- 셀프 테스트: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (마스킹 10 + 안전검증 5). 테스트 결과는 시스템 언어를 따라 한글/영어로 출력됩니다.
 
 Discussions: https://github.com/argenluna/maintenance/discussions
 
@@ -179,7 +187,7 @@ Double-click **"자동 유지보수 피드백"** on the Desktop → `feedback.ps
 - **`n`/Enter (no consent)** → no upload; the file stays on the Desktop. It is also kept if the upload fails.
 - The run result (success/failure/declined, URL, error, blocked count) is written (overwritten) to **자동유지보수_피드백상태.txt** on the Desktop.
 - No token is stored: `gh auth token` → `GH_TOKEN` → user input. GitHub REST cannot create Discussions, so **GraphQL `createDiscussion`** is used.
-- Self-test: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (10 masking + 5 safety)
+- Self-test: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (10 masking + 5 safety). Results print in Korean or English following the system language.
 
 ---
 
@@ -231,8 +239,8 @@ No. It touches services, tasks, registry, hosts and ad settings, so antivirus ma
 Change `maintenanceCadenceHours`. But at 24h, WHEA/GPU/BSOD dedupe breaks and false FAILs appear. 144h is recommended.
 
 **Q. 설치를 되돌리려면? / How to undo?**
-**A.** 바탕화면 **"자동 유지보수 제거"** 더블클릭. 예약 작업·바로가기를 지우고 광고 설정도 원래대로 복원합니다(로그·설정은 보존). 광고만 복원하려면 `uninstall.ps1 -RestoreAds`.
-Double-click **"자동 유지보수 제거"**. It removes the task/shortcuts and restores ad settings (logs kept). For ads only: `uninstall.ps1 -RestoreAds`.
+**A.** 바탕화면 **"자동 유지보수 제거"**(영어권: **"maintenance remove"**) 더블클릭. 예약 작업·바로가기를 지우고 광고 설정도 원래대로 복원합니다(로그·설정은 보존). 광고만 복원하려면 `uninstall.ps1 -RestoreAds`.
+Double-click **"자동 유지보수 제거"** (on non-Korean Windows: **"maintenance remove"**). It removes the task/shortcuts and restores ad settings (logs kept). For ads only: `uninstall.ps1 -RestoreAds`.
 
 ---
 
@@ -252,4 +260,4 @@ Unofficial personal tool, not affiliated with Microsoft or any vendor. It change
 
 ---
 
-© 2026 — Windows Auto Maintenance Kit v1.5.0
+© 2026 — Windows Auto Maintenance Kit v1.6.0

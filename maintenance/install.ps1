@@ -3,7 +3,9 @@
 #  Auto Maintenance - 설치 (1회만 실행)
 #  - 관리자 권한을 자동으로 요청합니다.
 #  - 6일 주기 자동 점검 예약 작업을 등록합니다.
-#  - 바탕화면에 "자동 유지보수 점검" / "자동 유지보수 피드백" 바로가기를 만듭니다.
+#  - 바탕화면 바로가기를 만듭니다 (v1.6.0: 시스템 언어에 따라 이름 결정).
+#      한국어: 자동 유지보수 점검 / 자동 유지보수 피드백 / 자동 유지보수 제거
+#      그 외  : maintenance / maintenance feedback / maintenance remove
 #  - 첫 점검을 지금 실행합니다(35초 내외).
 #  컴맹용: 이 파일을 더블클릭 → "예" → 끝.
 # ============================================================
@@ -38,6 +40,49 @@ function Get-KitVersionText {
 }
 $kitVersionText = Get-KitVersionText
 
+# --- Windows 언어 감지 (v1.6.0): 한국어면 ko, 아니면 en ---
+# PowerShell 5.1 의 CurrentUICulture 는 설치 언어(en-US)일 수 있어 모든 후보를 훑는다.
+function Get-KitLanguage {
+  $tags = @()
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentUICulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $l = @(Get-WinUserLanguageList) | Select-Object -First 1
+    if ($l -and -not [string]::IsNullOrWhiteSpace($l.LanguageTag)) { $tags += $l.LanguageTag }
+  } catch { }
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentCulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $t = (Get-WinSystemLocale).Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  foreach ($tag in @($tags | Where-Object { $_ })) {
+    if ($tag -match '^ko([-_]|$)') { return 'ko' }
+  }
+  return 'en'
+}
+$kitLang = Get-KitLanguage
+function L {
+  param([string]$Ko, [string]$En)
+  if ($kitLang -eq 'ko') { return $Ko }
+  return $En
+}
+# 바로가기 이름 (v1.6.0): 한국어=한글 이름 / 그 외=maintenance 계열
+$shortcutNames = if ($kitLang -eq 'ko') {
+  @{ Check = '자동 유지보수 점검.lnk'; Feedback = '자동 유지보수 피드백.lnk'; Remove = '자동 유지보수 제거.lnk' }
+} else {
+  @{ Check = 'maintenance.lnk'; Feedback = 'maintenance feedback.lnk'; Remove = 'maintenance remove.lnk' }
+}
+# 언어 전환 후 재설치 시 이전 언어의 바로가기가 남지 않도록 양쪽 세트를 모두 정리한다.
+$allShortcutNames = @(
+  '자동 유지보수 점검.lnk', '자동 유지보수 피드백.lnk', '자동 유지보수 제거.lnk',
+  'maintenance.lnk', 'maintenance feedback.lnk', 'maintenance remove.lnk'
+)
+
 function Test-Admin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   $p = New-Object Security.Principal.WindowsPrincipal($id)
@@ -48,7 +93,7 @@ function Write-Step($msg) { Write-Host "  $msg" }
 
 # --- 1. 관리자 권한 (없으면 스스로 다시 실행) ---
 if (-not (Test-Admin)) {
-  Write-Host '관리자 권한이 필요합니다. 확인 창에서 "예"를 누르세요...'
+  Write-Host (L '관리자 권한이 필요합니다. 확인 창에서 "예"를 누르세요...' 'Administrator rights are required. Click "Yes" in the prompt...')
   # 사용자 바탕화면 경로를 미리 잡아 관리자 권한으로 넘긴다(관리자 계정이 다를 때 대비).
   $userDesktop = [Environment]::GetFolderPath('Desktop')
   $argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ReportTo "{1}"' -f $PSCommandPath, $userDesktop
@@ -56,7 +101,7 @@ if (-not (Test-Admin)) {
   try {
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine | Out-Null
   } catch {
-    Write-Host '설치를 취소했습니다(관리자 권한 거부).'
+    Write-Host (L '설치를 취소했습니다(관리자 권한 거부).' 'Installation cancelled (admin rights denied).')
   }
   exit
 }
@@ -65,7 +110,7 @@ if ([string]::IsNullOrWhiteSpace($ReportTo)) { $ReportTo = [Environment]::GetFol
 
 Write-Host ''
 Write-Host '=========================================='
-Write-Host '   자동 유지보수 설치'
+Write-Host (L '   자동 유지보수 설치' '   Auto Maintenance - Install')
 Write-Host ("   {0}" -f $kitVersionText)
 Write-Host '=========================================='
 Write-Host ''
@@ -73,26 +118,26 @@ Write-Host ''
 # --- 2. 파일 확인 ---
 foreach ($f in @($wrapper, $maint, $runNow, $uninstall, $feedback)) {
   if (-not (Test-Path $f)) {
-    Write-Host "오류: 필요한 파일이 없습니다 → $f"
-    Write-Host '압축을 풀지 않았거나 파일이 이동되었습니다. 폴더째로 다시 받아 실행하세요.'
-    Read-Host 'Enter 키를 누르면 닫힙니다'
+    Write-Host (L "오류: 필요한 파일이 없습니다 → $f" "Error: required file missing → $f")
+    Write-Host (L '압축을 풀지 않았거나 파일이 이동되었습니다. 폴더째로 다시 받아 실행하세요.' 'The ZIP was not extracted or files were moved. Re-download the whole folder and run it.')
+    Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
     exit 1
   }
 }
-Write-Step '파일 확인 완료'
+Write-Step (L '파일 확인 완료' 'Files verified')
 
 # --- 3. 스크립트 문법 검사 (깨진 파일로 예약 작업을 걸지 않기 위해) ---
 foreach ($f in @($maint, $wrapper, $runNow, $uninstall, $feedback)) {
   $tok = $null; $err = $null
   $null = [System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$tok, [ref]$err)
   if ($err -and $err.Count -gt 0) {
-    Write-Host "오류: 스크립트가 손상되었습니다 → $f"
+    Write-Host (L "오류: 스크립트가 손상되었습니다 → $f" "Error: script is corrupted → $f")
     Write-Host ('  ' + $err[0].Message)
-    Read-Host 'Enter 키를 누르면 닫힙니다'
+    Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
     exit 1
   }
 }
-Write-Step '스크립트 검사 완료'
+Write-Step (L '스크립트 검사 완료' 'Scripts checked')
 
 # --- 4. 설정 파일 (없을 때만 기본값 생성) ---
 $cfgPath = Join-Path $sm 'config.json'
@@ -133,9 +178,9 @@ if (-not (Test-Path $cfgPath)) {
     adDnsServers             = @('94.140.14.14', '94.140.15.15')
   }
   $cfg | ConvertTo-Json -Depth 4 | Set-Content -Path $cfgPath -Encoding UTF8
-  Write-Step '설정 파일 생성'
+  Write-Step (L '설정 파일 생성' 'Config file created')
 } else {
-  Write-Step '설정 파일 유지(기존 설정 사용)'
+  Write-Step (L '설정 파일 유지(기존 설정 사용)' 'Config file kept (existing settings used)')
 }
 
 # wrapper(주기 게이트)가 읽는 최상위 config.json — 없으면 wrapper 가 즉시 exit 1 로 죽는다.
@@ -154,7 +199,7 @@ if (-not (Test-Path $runnerCfgPath)) {
     idleConsoleMinutes    = 5
   }
   $runnerCfg | ConvertTo-Json -Depth 4 | Set-Content -Path $runnerCfgPath -Encoding UTF8
-  Write-Step '실행 설정 생성 (config.json)'
+  Write-Step (L '실행 설정 생성 (config.json)' 'Runner config created (config.json)')
 }
 
 # --- 5. 예약 작업 등록 (매일 04:00 + 로그온 시, 실제 실행 여부는 6일 주기 게이트가 판단) ---
@@ -170,21 +215,28 @@ try {
     -ExecutionTimeLimit (New-TimeSpan -Hours 72) -MultipleInstances IgnoreNew
   $principal = New-ScheduledTaskPrincipal -UserId ("{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest
   Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force | Out-Null
-  Write-Step '자동 점검 예약 등록 완료 (6일에 1번, PC가 꺼져 있었으면 다음에 켤 때)'
+  Write-Step (L '자동 점검 예약 등록 완료 (6일에 1번, PC가 꺼져 있었으면 다음에 켤 때)' 'Scheduled task registered (once every 6 days; next startup if PC was off)')
 } catch {
-  Write-Host "오류: 예약 작업 등록 실패 → $($_.Exception.Message)"
-  Read-Host 'Enter 키를 누르면 닫힙니다'
+  Write-Host (L "오류: 예약 작업 등록 실패 → $($_.Exception.Message)" "Error: failed to register scheduled task → $($_.Exception.Message)")
+  Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
   exit 1
 }
 
-# --- 6. 바탕화면 바로가기 ---
+# --- 6. 바탕화면 바로가기 (v1.6.0: 시스템 언어에 따라 이름 결정) ---
 try {
   $desktop = [Environment]::GetFolderPath('Desktop')
+  # 이전 언어로 만들어 둔 바로가기가 있으면 먼저 정리한다(언어 전환/재설치 대비).
+  foreach ($oldName in $allShortcutNames) {
+    $oldPath = Join-Path $desktop $oldName
+    if (Test-Path -LiteralPath $oldPath) {
+      Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue
+    }
+  }
   $ws = New-Object -ComObject WScript.Shell
   $defs = @(
-    @{ Name = '자동 유지보수 점검.lnk'; Script = $runNow; Desc = '지금 바로 점검하고 결과를 보여줍니다' },
-    @{ Name = '자동 유지보수 피드백.lnk'; Script = $feedback; Desc = '개인정보·위험코드를 지운 뒤 동의/비동의를 선택해 GitHub에 올립니다' },
-    @{ Name = '자동 유지보수 제거.lnk'; Script = $uninstall; Desc = '자동 점검을 끄고 바로가기를 지웁니다' }
+    @{ Name = $shortcutNames.Check;    Script = $runNow;    Desc = (L '지금 바로 점검하고 결과를 보여줍니다' 'Run a check now and show the result') },
+    @{ Name = $shortcutNames.Feedback; Script = $feedback;  Desc = (L '개인정보·위험코드를 지운 뒤 동의/비동의를 선택해 GitHub에 올립니다' 'Masks personal info and risky code, then asks consent before uploading to GitHub') },
+    @{ Name = $shortcutNames.Remove;   Script = $uninstall; Desc = (L '자동 점검을 끄고 바로가기를 지웁니다' 'Turns off the automatic check and removes the shortcuts') }
   )
   foreach ($d in $defs) {
     $lnkPath = Join-Path $desktop $d.Name
@@ -196,24 +248,26 @@ try {
     $lnk.Description = $d.Desc
     $lnk.Save()
   }
-  Write-Step '바탕화면 바로가기 생성 (점검 / 피드백 / 제거)'
+  Write-Step (L '바탕화면 바로가기 생성 (점검 / 피드백 / 제거)' 'Desktop shortcuts created (check / feedback / remove)')
+  Write-Step (L "바로가기 이름: $($shortcutNames.Check) / $($shortcutNames.Feedback) / $($shortcutNames.Remove)" "Shortcut names: $($shortcutNames.Check) / $($shortcutNames.Feedback) / $($shortcutNames.Remove)")
 } catch {
-  Write-Host "  (경고) 바로가기 생성 실패: $($_.Exception.Message)"
+  Write-Host (L "  (경고) 바로가기 생성 실패: $($_.Exception.Message)" "  (Warning) Failed to create shortcuts: $($_.Exception.Message)")
 }
 
 # --- 7. 첫 점검 ---
 if (-not $NoFirstRun) {
   Write-Host ''
-  Write-Host '첫 점검을 시작합니다. 창을 닫지 마세요 (35초 내외).'
+  Write-Host (L '첫 점검을 시작합니다. 창을 닫지 마세요 (35초 내외).' 'Starting the first check. Do not close this window (about 35 seconds).')
   Write-Host ''
   & $wrapper -Force -ReportTo $ReportTo
   $resPath = Join-Path $sm 'last-result.json'
   if (Test-Path $resPath) {
     $r = Get-Content $resPath -Raw -Encoding UTF8 | ConvertFrom-Json
     Write-Host ''
-    Write-Host '--------------- 결과 ---------------'
-    Write-Host $(if ($r.status -eq 'PASS') { '결과: 정상 — 문제를 찾지 못했습니다.' } else { '결과: 확인이 필요한 항목이 있습니다.' })
-    Write-Host ("자동으로 고친 것: {0}건 / 직접 확인할 것: {1}건" -f @($r.autoFixes).Count, @($r.recommendations).Count)
+    Write-Host (L '--------------- 결과 ---------------' '--------------- Result ---------------')
+    Write-Host $(if ($r.status -eq 'PASS') { (L '결과: 정상 — 문제를 찾지 못했습니다.' 'Result: OK — no issues found.') } else { (L '결과: 확인이 필요한 항목이 있습니다.' 'Result: some items need your attention.') })
+    $fixLine = L "자동으로 고친 것: {0}건 / 직접 확인할 것: {1}건" "Auto-fixed: {0} / needs manual review: {1}"
+    Write-Host ($fixLine -f @($r.autoFixes).Count, @($r.recommendations).Count)
     $latest = $null
     foreach ($dir in @($ReportTo, ([Environment]::GetFolderPath('Desktop')))) {
       if ([string]::IsNullOrWhiteSpace($dir) -or -not (Test-Path $dir)) { continue }
@@ -231,18 +285,19 @@ if (-not $NoFirstRun) {
       if (Test-Path $copy) { $latest = Get-Item $copy }
     }
     if ($latest) {
-      Write-Host "자세한 결과 파일: $($latest.FullName)"
+      Write-Host (L "자세한 결과 파일: $($latest.FullName)" "Detailed result file: $($latest.FullName)")
       try { Invoke-Item $latest.FullName } catch { }
     }
   } else {
     Write-Host ''
-    Write-Host '첫 점검이 완료되지 않았습니다. 로그를 확인하세요:'
+    Write-Host (L '첫 점검이 완료되지 않았습니다. 로그를 확인하세요:' 'The first check did not finish. Check the logs:')
     Write-Host ("  " + (Join-Path $root 'logs\runner-*.log'))
   }
 }
 
 Write-Host ''
-Write-Host '설치 완료. 이제부터 6일에 한 번 자동으로 점검합니다.'
-Write-Host '바탕화면의 "자동 유지보수 점검"을 더블클릭하면 언제든 직접 점검할 수 있습니다.'
-Write-Host '컴퓨터를 잘 모르면 "newbie.txt"를, 의견을 보내려면 "자동 유지보수 피드백"을 사용하세요.'
-Read-Host 'Enter 키를 누르면 닫힙니다'
+Write-Host (L '설치 완료. 이제부터 6일에 한 번 자동으로 점검합니다.' 'Install complete. Automatic checks now run every 6 days.')
+$checkDisplayName = $shortcutNames.Check -replace '\.lnk$',''
+Write-Host (L "바탕화면의 ""$checkDisplayName""을 더블클릭하면 언제든 직접 점검할 수 있습니다." "Double-click ""$checkDisplayName"" on the Desktop to run a check anytime.")
+Write-Host (L '컴퓨터를 잘 모르면 "newbie.txt"를, 의견을 보내려면 피드백 바로가기를 사용하세요.' 'If you are new to PCs, see "newbie.txt"; to send feedback, use the feedback shortcut.')
+Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')

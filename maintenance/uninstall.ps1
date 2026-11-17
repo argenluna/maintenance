@@ -1,8 +1,9 @@
 ﻿# -*- coding: utf-8 -*-
 # ============================================================
 #  Auto Maintenance - 제거
-#  바탕화면 "자동 유지보수 제거" 바로가기가 실행하는 파일.
+#  바탕화면 "자동 유지보수 제거" / "maintenance remove" 바로가기가 실행하는 파일.
 #  - 예약 작업(자동 점검)을 끄고 바로가기를 지웁니다.
+#    (v1.6.0: 언어 전환 전에 만들어 둔 바로가기까지 양쪽 이름 모두 정리)
 #  - 로그/설정/이전 결과는 지우지 않습니다(나중에 다시 설치해도 이어짐).
 #  - -RestoreAds : 광고/추천 설정(레지스트리·hosts·DNS·예약 작업)만 원래대로 되돌립니다.
 # ============================================================
@@ -31,6 +32,42 @@ function Get-KitVersionText {
   return 'vunknown'
 }
 $kitVersionText = Get-KitVersionText
+
+# --- Windows 언어 감지 (v1.6.0): 한국어면 ko, 아니면 en ---
+function Get-KitLanguage {
+  $tags = @()
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentUICulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $l = @(Get-WinUserLanguageList) | Select-Object -First 1
+    if ($l -and -not [string]::IsNullOrWhiteSpace($l.LanguageTag)) { $tags += $l.LanguageTag }
+  } catch { }
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentCulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $t = (Get-WinSystemLocale).Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  foreach ($tag in @($tags | Where-Object { $_ })) {
+    if ($tag -match '^ko([-_]|$)') { return 'ko' }
+  }
+  return 'en'
+}
+$kitLang = Get-KitLanguage
+function L {
+  param([string]$Ko, [string]$En)
+  if ($kitLang -eq 'ko') { return $Ko }
+  return $En
+}
+# 설치 시 언어에 상관없이 양쪽 세트를 모두 지운다(언어 전환 후 잔여 바로가기 방지).
+$allShortcutNames = @(
+  '자동 유지보수 점검.lnk', '자동 유지보수 피드백.lnk', '자동 유지보수 제거.lnk',
+  'maintenance.lnk', 'maintenance feedback.lnk', 'maintenance remove.lnk'
+)
 
 function Test-Admin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -127,13 +164,13 @@ function Restore-AdSettings {
 }
 
 if (-not (Test-Admin)) {
-  Write-Host '관리자 권한이 필요합니다. 확인 창에서 "예"를 누르세요...'
+  Write-Host (L '관리자 권한이 필요합니다. 확인 창에서 "예"를 누르세요...' 'Administrator rights are required. Click "Yes" in the prompt...')
   try {
     $argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $PSCommandPath
     if ($RestoreAds) { $argLine += ' -RestoreAds' }
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine | Out-Null
   } catch {
-    Write-Host '제거를 취소했습니다.'
+    Write-Host (L '제거를 취소했습니다.' 'Removal cancelled.')
     Start-Sleep -Seconds 2
   }
   exit
@@ -143,28 +180,28 @@ if (-not (Test-Admin)) {
 if ($RestoreAds) {
   Write-Host ''
   Write-Host '=========================================='
-  Write-Host '   광고/추천 설정 복원'
+  Write-Host (L '   광고/추천 설정 복원' '   Restore ad/recommendation settings')
   Write-Host ("   {0}" -f $kitVersionText)
   Write-Host '=========================================='
   Write-Host ''
   $ok = Restore-AdSettings
   Write-Host ''
-  if ($ok) { Write-Host '완료. 필요한 프로그램을 다시 시작하면 원래대로 돌아옵니다.' }
-  else { Write-Host '일부 항목을 복원하지 못했습니다. 위 경고를 확인하세요.' }
-  Read-Host 'Enter 키를 누르면 닫힙니다'
+  if ($ok) { Write-Host (L '완료. 필요한 프로그램을 다시 시작하면 원래대로 돌아옵니다.' 'Done. Restart any affected programs to see the changes.') }
+  else { Write-Host (L '일부 항목을 복원하지 못했습니다. 위 경고를 확인하세요.' 'Some items could not be restored. Check the warnings above.') }
+  Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
   exit 0
 }
 
 Write-Host ''
 Write-Host '=========================================='
-Write-Host '   자동 유지보수 제거'
+Write-Host (L '   자동 유지보수 제거' '   Auto Maintenance - Remove')
 Write-Host ("   {0}" -f $kitVersionText)
 Write-Host '=========================================='
 Write-Host ''
-$answer = Read-Host '자동 점검을 끌까요? (y = 예, 그 외 = 취소)'
+$answer = Read-Host (L '자동 점검을 끌까요? (y = 예, 그 외 = 취소)' 'Turn off the automatic check? (y = yes, anything else = cancel)')
 if ($answer -notmatch '^(y|Y|ㅛ|예)$') {
-  Write-Host '취소했습니다. 아무것도 바뀌지 않았습니다.'
-  Read-Host 'Enter 키를 누르면 닫힙니다'
+  Write-Host (L '취소했습니다. 아무것도 바뀌지 않았습니다.' 'Cancelled. Nothing was changed.')
+  Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
   exit 0
 }
 
@@ -173,7 +210,7 @@ $adBackup = Join-Path $root 'Simple maintenance\adbackup'
 $restoreAds = $false
 if (Test-Path $adBackup) {
   Write-Host ''
-  $a2 = Read-Host '광고/추천 설정도 원래대로 되돌릴까요? (y = 예, 그 외 = 그대로 두기)'
+  $a2 = Read-Host (L '광고/추천 설정도 원래대로 되돌릴까요? (y = 예, 그 외 = 그대로 두기)' 'Restore ad/recommendation settings too? (y = yes, anything else = leave as is)')
   if ($a2 -match '^(y|Y|ㅛ|예)$') { $restoreAds = $true }
   Write-Host ''
 }
@@ -183,30 +220,30 @@ $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($task) {
   try {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
-    Write-Host "  예약 작업 제거: $taskName"
+    Write-Host (L "  예약 작업 제거: $taskName" "  Scheduled task removed: $taskName")
   } catch {
-    Write-Host "  (경고) 예약 작업 제거 실패: $($_.Exception.Message)"
+    Write-Host (L "  (경고) 예약 작업 제거 실패: $($_.Exception.Message)" "  (Warning) Failed to remove scheduled task: $($_.Exception.Message)")
   }
 } else {
-  Write-Host '  예약 작업이 이미 없습니다.'
+  Write-Host (L '  예약 작업이 이미 없습니다.' '  No scheduled task found.')
 }
 
-# --- 바로가기 제거 ---
+# --- 바로가기 제거 (양쪽 언어 세트 모두) ---
 $desktop = [Environment]::GetFolderPath('Desktop')
-foreach ($lnk in @('자동 유지보수 점검.lnk', '자동 유지보수 피드백.lnk', '자동 유지보수 제거.lnk')) {
+foreach ($lnk in $allShortcutNames) {
   $p = Join-Path $desktop $lnk
-  if (Test-Path $p) {
-    try { Remove-Item -Path $p -Force -ErrorAction Stop; Write-Host "  바로가기 제거: $lnk" } catch { }
+  if (Test-Path -LiteralPath $p) {
+    try { Remove-Item -LiteralPath $p -Force -ErrorAction Stop; Write-Host (L "  바로가기 제거: $lnk" "  Shortcut removed: $lnk") } catch { }
   }
 }
 
 if ($restoreAds) {
-  Write-Host '[광고/추천 설정 복원]'
+  Write-Host (L '[광고/추천 설정 복원]' '[Restoring ad/recommendation settings]')
   $null = Restore-AdSettings
   Write-Host ''
 }
 
 Write-Host ''
-Write-Host '제거 완료. 로그와 설정은 그대로 남아 있습니다.'
-Write-Host '다시 쓰려면 install.ps1 을 실행하세요.'
-Read-Host 'Enter 키를 누르면 닫힙니다'
+Write-Host (L '제거 완료. 로그와 설정은 그대로 남아 있습니다.' 'Removal complete. Logs and settings were left untouched.')
+Write-Host (L '다시 쓰려면 install.ps1 을 실행하세요.' 'To use it again, run install.ps1.')
+Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
