@@ -1,5 +1,5 @@
-# Windows 자동 유지보수 키트 (v1.7.0)
-# Windows Auto Maintenance Kit (v1.7.0)
+# Windows 자동 유지보수 키트 (v1.8.0)
+# Windows Auto Maintenance Kit (v1.8.0)
 
 🪟🔧✨ 컴퓨터를 잘 모르는 사람도 3단계로 설치하고, 이후에는 아무것도 하지 않아도 6일에 한 번 스스로 점검하는 윈도우 유지보수 도구입니다.
 🪟🔧✨ A Windows maintenance tool that anyone can install in 3 steps, then forget about — it checks itself every 6 days automatically.
@@ -16,6 +16,7 @@
 | [빠른 시작 (3단계)](#빠른-시작-3단계) | [Quick start (3 steps)](#quick-start-3-steps) |
 | [38개 검사 항목](#38개-검사-항목) | [38 checks](#38-checks) |
 | [결과 읽는 법](#결과-읽는-법) | [How to read the report](#how-to-read-the-report) |
+| [새 버전 알림 / 업데이트](#새-버전-알림--업데이트) | [Update notification](#update-notification) |
 | [피드백 보내기](#피드백-보내기) | [Send feedback](#send-feedback) |
 | [파일 구성](#파일-구성) | [File layout](#file-layout) |
 | [설정](#설정) | [Configuration](#configuration) |
@@ -165,6 +166,40 @@ Status words:
 
 ---
 
+## 새 버전 알림 / 업데이트 (v1.8.0)
+
+### Update notification
+
+**한국어**
+바탕화면의 **"자동 유지보수 점검"**(영어권: **"auto-maintenance"**)을 직접 누르면, GitHub Release에서 더 새 버전이 있는지 확인합니다. 새 버전이 있으면 이런 창이 뜹니다:
+
+> 현재 v1.2.0보다 5버전 뒤인 v1.8.0이 나왔습니다.
+> 새로운 기능이 12가지 추가되었습니다. 업데이트 해보시겠습니까?
+> 새 버전은 https://github.com/argenluna/maintenance/releases 여기서 받으시면 됩니다.
+
+버튼은 세 개입니다:
+- **업데이트** — 설치 폴더의 `업데이트.ps1`(영문 `update.ps1`)을 즉시 실행합니다. 새 ZIP을 받아 SHA-256 해시를 검증한 뒤, 설정·로그를 이어받고 예약 작업과 바로가기를 새 폴더로 바꿉니다. 기존 폴더는 **삭제하지 않고 롤백용으로 남깁니다.**
+- **취소** — 지금 버전을 그대로 사용합니다.
+- **다시 알리지 않음** — 그 버전만 건너뜁니다. 더 높은 버전이 나오면 다시 알립니다.
+
+※ 예약 자동 점검 때는 창을 띄우지 않습니다. 사용자가 직접 열었을 때만 알립니다. GitHub 연결이 안 되면 조용히 넘어가고 점검은 정상 진행됩니다.
+
+**English**
+Opening the **"auto-maintenance"** shortcut (Korean: **"자동 유지보수 점검"**) checks GitHub Releases for a newer version. If one exists:
+
+> v1.2.0 is 5 version(s) behind. v1.8.0 is now available.
+> 12 new features/changes were added. Would you like to update?
+> You can also download it from https://github.com/argenluna/maintenance/releases
+
+Three buttons:
+- **Update** — immediately runs `update.ps1` (Korean: `업데이트.ps1`). It downloads the latest ZIP, verifies its SHA-256 hash, carries over settings/logs, and repoints the scheduled task and shortcuts to the new folder. The old folder is **kept for rollback, never deleted.**
+- **Cancel** — keep the current version.
+- **Don't show again** — skips only that version; higher versions still notify.
+
+Scheduled automatic runs never show the dialog — it appears only when you open it yourself. If GitHub is unreachable, the check is silently skipped and the scan continues.
+
+---
+
 ## 피드백 보내기 / Send feedback
 
 **한국어**
@@ -203,7 +238,9 @@ Double-click **"자동 유지보수 피드백"** on the Desktop → `feedback.ps
 | `readme.txt` | 일반 사용자용 사용법 / User guide |
 | `README.md` |개발자 문서 / Developer documentation |
 | `run-maintenance.ps1` | 주기 게이트, 예약 작업 대상 / Cadence gate, scheduled task target |
-| `run-now.ps1` | "지금 점검" 바로가기 / "Check now" shortcut |
+| `run-now.ps1` | "지금 점검" 바로가기 + 새 버전 알림 / "Check now" shortcut + update notice |
+| `update-common.ps1` | Release 조회·버전 비교·3버튼 알림창 / Release lookup, version compare, 3-button dialog |
+| `업데이트.ps1`, `update.ps1` | ZIP 해시검증 → 새 폴더 복사 → 상태 이어받기 → 작업/바로가기 재등록 / Updater |
 | `feedback.ps1` | 민감정보 마스킹 피드백 생성 / Masked feedback generator |
 | `uninstall.ps1` | 예약 작업/바로가기 제거, `-RestoreAds` 로 광고 설정 복원 / Uninstall |
 | `Simple maintenance\maintenance.ps1` | 실제 점검/자동 수리 (38단계) / Actual checks |
@@ -260,4 +297,4 @@ Unofficial personal tool, not affiliated with Microsoft or any vendor. It change
 
 ---
 
-© 2026 — Windows Auto Maintenance Kit v1.7.0
+© 2026 — Windows Auto Maintenance Kit v1.8.0

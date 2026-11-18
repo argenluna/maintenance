@@ -3,13 +3,13 @@
 #  Auto Maintenance - 설치 (1회만 실행)
 #  - 관리자 권한을 자동으로 요청합니다.
 #  - 6일 주기 자동 점검 예약 작업을 등록합니다.
-#  - 바탕화면 바로가기를 만듭니다 (v1.6.0: 시스템 언어에 따라 이름 결정).
+#  - 바탕화면 바로가기를 만듭니다 (v1.7.0: 시스템 언어에 따라 이름 결정).
 #      한국어: 자동 유지보수 점검 / 자동 유지보수 피드백 / 자동 유지보수 제거
-#      그 외  : maintenance / maintenance feedback / maintenance remove
+#      그 외  : auto-maintenance / feedback maintenance / remove maintenance
 #  - 첫 점검을 지금 실행합니다(35초 내외).
 #  컴맹용: 이 파일을 더블클릭 → "예" → 끝.
 # ============================================================
-param([switch]$NoFirstRun, [string]$ReportTo = '')
+param([switch]$NoFirstRun, [string]$ReportTo = '', [switch]$NoPause)
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -71,16 +71,17 @@ function L {
   if ($kitLang -eq 'ko') { return $Ko }
   return $En
 }
-# 바로가기 이름 (v1.6.0): 한국어=한글 이름 / 그 외=maintenance 계열
+# 바로가기 이름 (v1.7.0): 한국어=한글 이름 / 그 외=auto-maintenance 계열
 $shortcutNames = if ($kitLang -eq 'ko') {
   @{ Check = '자동 유지보수 점검.lnk'; Feedback = '자동 유지보수 피드백.lnk'; Remove = '자동 유지보수 제거.lnk' }
 } else {
-  @{ Check = 'maintenance.lnk'; Feedback = 'maintenance feedback.lnk'; Remove = 'maintenance remove.lnk' }
+  @{ Check = 'auto-maintenance.lnk'; Feedback = 'feedback maintenance.lnk'; Remove = 'remove maintenance.lnk' }
 }
-# 언어 전환 후 재설치 시 이전 언어의 바로가기가 남지 않도록 양쪽 세트를 모두 정리한다.
+# 언어 전환 후 재설치 시 이전 언어의 바로가기가 남지 않도록 모든 세트(구 이름 포함)를 정리한다.
 $allShortcutNames = @(
   '자동 유지보수 점검.lnk', '자동 유지보수 피드백.lnk', '자동 유지보수 제거.lnk',
-  'maintenance.lnk', 'maintenance feedback.lnk', 'maintenance remove.lnk'
+  'maintenance.lnk', 'maintenance feedback.lnk', 'maintenance remove.lnk',
+  'auto-maintenance.lnk', 'feedback maintenance.lnk', 'remove maintenance.lnk'
 )
 
 function Test-Admin {
@@ -98,6 +99,7 @@ if (-not (Test-Admin)) {
   $userDesktop = [Environment]::GetFolderPath('Desktop')
   $argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ReportTo "{1}"' -f $PSCommandPath, $userDesktop
   if ($NoFirstRun) { $argLine += ' -NoFirstRun' }
+  if ($NoPause) { $argLine += ' -NoPause' }
   try {
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine | Out-Null
   } catch {
@@ -127,7 +129,7 @@ foreach ($f in @($wrapper, $maint, $runNow, $uninstall, $feedback)) {
 Write-Step (L '파일 확인 완료' 'Files verified')
 
 # --- 3. 스크립트 문법 검사 (깨진 파일로 예약 작업을 걸지 않기 위해) ---
-foreach ($f in @($maint, $wrapper, $runNow, $uninstall, $feedback)) {
+foreach ($f in @($maint, $wrapper, $runNow, $uninstall, $feedback, (Join-Path $root 'update-common.ps1'), (Join-Path $root '업데이트.ps1'), (Join-Path $root 'update.ps1'))) {
   $tok = $null; $err = $null
   $null = [System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$tok, [ref]$err)
   if ($err -and $err.Count -gt 0) {
@@ -222,7 +224,7 @@ try {
   exit 1
 }
 
-# --- 6. 바탕화면 바로가기 (v1.6.0: 시스템 언어에 따라 이름 결정) ---
+# --- 6. 바탕화면 바로가기 (v1.7.0: 시스템 언어에 따라 이름 결정) ---
 try {
   $desktop = [Environment]::GetFolderPath('Desktop')
   # 이전 언어로 만들어 둔 바로가기가 있으면 먼저 정리한다(언어 전환/재설치 대비).
@@ -300,4 +302,5 @@ Write-Host (L '설치 완료. 이제부터 6일에 한 번 자동으로 점검�
 $checkDisplayName = $shortcutNames.Check -replace '\.lnk$',''
 Write-Host (L "바탕화면의 ""$checkDisplayName""을 더블클릭하면 언제든 직접 점검할 수 있습니다." "Double-click ""$checkDisplayName"" on the Desktop to run a check anytime.")
 Write-Host (L '컴퓨터를 잘 모르면 "newbie.txt"를, 의견을 보내려면 피드백 바로가기를 사용하세요.' 'If you are new to PCs, see "newbie.txt"; to send feedback, use the feedback shortcut.')
-Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
+# v1.8.0: 업데이트 스크립트에서 호출할 때는 Enter 입력을 기다리지 않는다.
+if (-not $NoPause) { Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close') }

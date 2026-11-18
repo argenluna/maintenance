@@ -21,11 +21,11 @@
 #  - 실행 결과(성공/실패/비동의·URL·오류·차단 건수)를 바탕화면
 #    "자동유지보수_피드백상태.txt" 에 덮어써서 남기고, 콘솔에도 배너로 표시한다.
 #  - Discussion 본문 하단에 버전·시각·안전검증 결과 메타데이터를 붙인다.
-#  v1.6.0 (2026-11-18) 시스템 언어 대응
+#  v1.6.0 (2026-11-18) 시스템 언어 대응 / v1.7.0 이름·결과 txt 영어 출력
 #  - Windows UI 언어가 한국어면 한국어, 아니면 영어로 출력한다.
 #    SelfTest 결과(테스트 결과), 상태 파일, 콘솔 배너가 언어를 따라간다.
 #  - 바탕화면 바로가기도 한국어=자동 유지보수 점검/제거/피드백,
-#    그 외 언어=maintenance / maintenance remove / maintenance feedback.
+#    그 외 언어=auto-maintenance / remove maintenance / feedback maintenance.
 #  - PowerShell 5.1 호환 / UTF-8 BOM 필수.
 #
 #  사용법:
@@ -354,12 +354,17 @@ function Get-LatestResultFile {
     if (Test-Path -LiteralPath $Explicit) { return Get-Item -LiteralPath $Explicit }
     return $null
   }
-  $desktopDirs = @($desktop, (Join-Path $desktop '자동점검결과'))
+  # v1.7.0: 영어 모드 결과 보관 폴더도 함께 찾는다.
+  $desktopDirs = @($desktop, (Join-Path $desktop '자동점검결과'), (Join-Path $desktop 'maintenance results'))
   $best = $null
   foreach ($dir in $desktopDirs) {
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
     $cand = Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -like '자동유지보수_*.txt' -and $_.Name -notlike '자동유지보수_피드백_*' -and $_.Name -notlike '자동유지보수_피드백상태*' } |
+      Where-Object {
+        ($_.Name -like '자동유지보수_*.txt' -or $_.Name -like 'auto-maintenance_*.txt') -and
+        $_.Name -notlike '자동유지보수_피드백_*' -and $_.Name -notlike '자동유지보수_피드백상태*' -and
+        $_.Name -notlike 'auto-maintenance_feedback_*'
+      } |
       Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($cand -and (-not $best -or $cand.LastWriteTime -gt $best.LastWriteTime)) { $best = $cand }
   }

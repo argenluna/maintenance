@@ -1,9 +1,9 @@
 ﻿# -*- coding: utf-8 -*-
 # ============================================================
 #  Auto Maintenance - 제거
-#  바탕화면 "자동 유지보수 제거" / "maintenance remove" 바로가기가 실행하는 파일.
+#  바탕화면 "자동 유지보수 제거" / "remove maintenance" 바로가기가 실행하는 파일.
 #  - 예약 작업(자동 점검)을 끄고 바로가기를 지웁니다.
-#    (v1.6.0: 언어 전환 전에 만들어 둔 바로가기까지 양쪽 이름 모두 정리)
+#    (v1.7.0: 언어 전환 전에 만들어 둔 바로가기까지 모든 이름 정리)
 #  - 로그/설정/이전 결과는 지우지 않습니다(나중에 다시 설치해도 이어짐).
 #  - -RestoreAds : 광고/추천 설정(레지스트리·hosts·DNS·예약 작업)만 원래대로 되돌립니다.
 # ============================================================
@@ -63,10 +63,11 @@ function L {
   if ($kitLang -eq 'ko') { return $Ko }
   return $En
 }
-# 설치 시 언어에 상관없이 양쪽 세트를 모두 지운다(언어 전환 후 잔여 바로가기 방지).
+# 설치 시 언어에 상관없이 모든 세트(구 이름 포함)를 지운다(언어 전환 후 잔여 바로가기 방지).
 $allShortcutNames = @(
   '자동 유지보수 점검.lnk', '자동 유지보수 피드백.lnk', '자동 유지보수 제거.lnk',
-  'maintenance.lnk', 'maintenance feedback.lnk', 'maintenance remove.lnk'
+  'maintenance.lnk', 'maintenance feedback.lnk', 'maintenance remove.lnk',
+  'auto-maintenance.lnk', 'feedback maintenance.lnk', 'remove maintenance.lnk'
 )
 
 function Test-Admin {

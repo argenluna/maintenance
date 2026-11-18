@@ -95,7 +95,10 @@ if ($elapsedHours -lt $cadenceEffective -and -not $Force) {
   exit 0
 }
 if ($Force) {
-  Write-RunnerLog ("Force run requested - ignoring cadence ({0}h since last run)" -f [math]::Round($elapsedHours, 2))
+  # 2026-11-18 (v1.8.0): status.json 이 없으면 lastRun=DateTime.MinValue 라서
+  #   "17758482h since last run"(약 2026년) 같은 숫자가 찍히던 문제를 고쳤다.
+  $sinceText = if ($lastRun -eq [DateTime]::MinValue) { 'no previous run' } else { ('{0}h since last run' -f [math]::Round($elapsedHours, 2)) }
+  Write-RunnerLog ("Force run requested - ignoring cadence ($sinceText)")
 } else {
   Write-RunnerLog ("Cadence OK ({0}h since last run) - delegating to maintenance.ps1 -Mode scheduled" -f [math]::Round($elapsedHours, 2))
 }

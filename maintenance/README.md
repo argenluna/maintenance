@@ -19,22 +19,27 @@ OpenCode-Maintenance (예약: 매일 04:00 + 로그온 5분 후)
   └─ run-maintenance.ps1      주기(cadence) 확인, status.json 갱신
        └─ Simple maintenance\maintenance.ps1 -Mode scheduled   실제 점검/자동 수리
 
-run-now.ps1 (바탕화면 "자동 유지보수 점검" / "maintenance")  → run-maintenance.ps1 -Force → 즉시 점검 + 리포트
-uninstall.ps1 (바탕화면 "자동 유지보수 제거" / "maintenance remove") → 예약 작업/바로가기 제거
+run-now.ps1 (바탕화면 "자동 유지보수 점검" / "auto-maintenance")  → run-maintenance.ps1 -Force → 즉시 점검 + 리포트
+uninstall.ps1 (바탕화면 "자동 유지보수 제거" / "remove maintenance") → 예약 작업/바로가기 제거
 ```
 
-> **시스템 언어 대응 (v1.6.0)** — Windows 언어를 감지해 한국어면 한글 이름, 그 외 언어면 영어 이름으로
-> 바탕화면 바로가기를 만듭니다. SelfTest(테스트 결과)·피드백 상태 파일·콘솔 메시지도 같은 언어를 따릅니다.
+> **시스템 언어 대응 (v1.6.0~v1.7.0)** — Windows 언어를 감지해 한국어면 한글 이름/한글 결과 txt,
+> 그 외 언어면 영어 바로가기 이름/**영어 결과 txt**를 만듭니다. SelfTest·피드백 상태 파일·콘솔 메시지도 같은 언어를 따릅니다.
 >
-> | 용도 | 한국어 | 그 외 언어 |
+> | 용도 | 한국어 | 그 외 언어 (v1.7.0) |
 > |---|---|---|
-> | 점검 | `자동 유지보수 점검.lnk` | `maintenance.lnk` |
-> | 제거 | `자동 유지보수 제거.lnk` | `maintenance remove.lnk` |
-> | 피드백 | `자동 유지보수 피드백.lnk` | `maintenance feedback.lnk` |
+> | 점검 | `자동 유지보수 점검.lnk` | `auto-maintenance.lnk` |
+> | 제거 | `자동 유지보수 제거.lnk` | `remove maintenance.lnk` |
+> | 피드백 | `자동 유지보수 피드백.lnk` | `feedback maintenance.lnk` |
+> | 결과 txt | `자동유지보수_yyyyMMdd_HHmm.txt` | `auto-maintenance_yyyyMMdd_HHmm.txt` |
+> | 실패 txt | `자동유지보수_실패_*.txt` | `auto-maintenance_failed_*.txt` |
+> | 결과 보관 폴더 | `자동점검결과` | `maintenance results` |
 >
 > 감지 순서: `CurrentUICulture` → `Get-WinUserLanguageList[0]` → `CurrentCulture` → `Get-WinSystemLocale`
 > 중 하나라도 `ko-*`면 한국어, 아니면 영어. (PowerShell 5.1의 UI 문화권은 설치 언어 `en-US`일 수 있어
-> 첫 값만 보지 않고 **모든 후보를 확인**합니다.) 언어를 바꾼 뒤 재설치하면 이전 언어 바로가기는 자동 정리됩니다.
+> 첫 값만 보지 않고 **모든 후보를 확인**합니다.) 언어를 바꾼 뒤 재설치하면 이전 언어 바로가기는 모두 정리됩니다.
+> 영어 모드 결과 txt 는 요약·상세 로그 전체가 영어로 출력되며(한글 문구는 `L()`/치환 맵으로 변환),
+> 이전 버전에서 만든 한글 결과 파일도 정리·피드백 대상에 그대로 포함됩니다.
 
 ## 빠른 시작 (컴맹용, 3단계)
 
@@ -43,9 +48,9 @@ uninstall.ps1 (바탕화면 "자동 유지보수 제거" / "maintenance remove")
 > 컴퓨터를 전혀 모르는 분께는 **`newbie.txt`** 를 먼저 보여주세요. 38개 검사를 레고·집·주방 비유로 설명합니다.
 2. 평소에는 **아무것도 하지 않아도 됩니다.** PC가 켜져 있으면 6일에 한 번 자동으로 점검합니다
    (매일 04:00 + 로그온 5분 후에 "할 차례인지" 확인만 하고, 실제 실행은 6일 주기).
-3. 결과는 바탕화면 `자동유지보수_날짜시간.txt` — **맨 위 3줄만** 보면 됩니다.
-   - 즉시 점검하고 싶을 때: 바탕화면 **자동 유지보수 점검** 더블클릭
-   - 자동 점검을 끄고 싶을 때: 바탕화면 **자동 유지보수 제거** 더블클릭 (로그·설정은 보존)
+3. 결과는 바탕화면 `자동유지보수_날짜시간.txt`(영어권: `auto-maintenance_날짜시간.txt`) — **맨 위 3줄만** 보면 됩니다.
+   - 즉시 점검하고 싶을 때: 바탕화면 **자동 유지보수 점검**(영어권: `auto-maintenance`) 더블클릭
+   - 자동 점검을 끄고 싶을 때: 바탕화면 **자동 유지보수 제거**(영어권: `remove maintenance`) 더블클릭 (로그·설정은 보존)
 
 `install.ps1` 이 하는 일: 관리자 권한 요청 → 파일/문법 검사 → 예약 작업 `OpenCode-Maintenance` 등록 →
 바탕화면 바로가기 2개 생성 → 첫 점검 실행 + 결과 파일 열기.
@@ -68,31 +73,31 @@ uninstall.ps1 (바탕화면 "자동 유지보수 제거" / "maintenance remove")
 
 | 상황 | 남는 파일 (사용자 바탕화면) |
 |------|------------------------------|
-| 정상 완료 | `자동유지보수_yyyyMMdd_HHmm.txt` (+ `Simple maintenance\logs\last-report.txt` 사본) |
-| 실행 중 치명적 오류 | `자동유지보수_실패_yyyyMMdd_HHmm.txt` — 오류 메시지·위치·로그 경로. `maintenance.ps1` 의 `trap` |
+| 정상 완료 | `자동유지보수_yyyyMMdd_HHmm.txt` (영어권 `auto-maintenance_yyyyMMdd_HHmm.txt`) (+ `Simple maintenance\logs\last-report.txt` 사본) |
+| 실행 중 치명적 오류 | `자동유지보수_실패_yyyyMMdd_HHmm.txt` (영어권 `auto-maintenance_failed_yyyyMMdd_HHmm.txt`) — 오류 메시지·위치·로그 경로. `maintenance.ps1` 의 `trap` |
 | 결과 파일조차 못 남김(스크립트 파싱 실패, 백신 차단, 중복 실행으로 즉시 종료) | `자동유지보수_안내_yyyyMMdd_HHmm.txt` — 가능한 원인 3가지 + 로그 경로. wrapper 가 생성 |
 | 위 두 경우 | 콘솔에도 "이번에는 점검이 완료되지 않았습니다" + 로그 경로를 보여주고 **지난 결과를 정상인 것처럼 보여주지 않는다** |
 
 > 확인 위치: 바탕화면 `자동유지보수_*.txt`, 로그는 `logs\runner-YYYY-MM.log`(wrapper) 와
 > `Simple maintenance\logs\maintain-YYYY-MM-DD.log`(본체). 결과 txt 가 없으면 이 두 로그를 보내면 원인을 알 수 있다.
 
-## 버전 (현재 **v1.6.0**, 2026-11-18)
+## 버전 (현재 **v1.7.0**, 2026-11-18)
 
 수정할 때마다 버전을 올린다. **`VERSION` 파일(킷 루트)이 유일한 기준**이고, 각 스크립트가 이 파일을 읽어
 콘솔·결과 txt·로그에 찍는다. "친구 PC에서 어느 버전이 돌았는지"를 파일만 보고 확인할 수 있다.
 
 ```
 VERSION 파일 (2줄)
-  1.6.0
+  1.7.0
   2026-11-18
 ```
 
 | 확인 위치 | 표시 예 |
 |-----------|---------|
-| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v1.6.0 (2026-11-18)` |
-| 결과 txt | `실행: 2026-11-18 12:30` 아래 `버전: v1.6.0 (2026-11-18)` |
-| 실패/안내 txt | `버전: v1.6.0 (2026-11-18)` |
-| 로그 | `maintain-*.log` → `VERSION: v1.6.0 (2026-11-18)`, `runner-*.log` → `Kit version: …` |
+| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v1.7.0 (2026-11-18)` |
+| 결과 txt | `실행: 2026-11-18 12:30` 아래 `버전: v1.7.0 (2026-11-18)` (영어권 `Run:` / `Version:`) |
+| 실패/안내 txt | `버전: v1.7.0 (2026-11-18)` |
+| 로그 | `maintain-*.log` → `VERSION: v1.7.0 (2026-11-18)`, `runner-*.log` → `Kit version: …` |
 | JSON | `status.json`, `Simple maintenance\last-result.json` 의 `version` |
 | 설치 폴더 | `VERSION` 파일 |
 
@@ -104,7 +109,7 @@ VERSION 파일 (2줄)
 | 기능 추가·동작 변경 | 새 검사 항목, 삭제 확인 방식 변경 | `1.1.x` → `1.2.0` |
 | 구조 변경 | 파일 구성/설정 키 변경(재설치 필요) | `1.x.y` → `2.0.0` |
 
-**ZIP 이름도 버전을 포함한다** — `dist\AutoMaintenance_v1.6.0_20261118.zip`
+**ZIP 이름도 버전을 포함한다** — `dist\AutoMaintenance_v1.7.0_20261118.zip`
 (예전 `AutoMaintenance_20261111.zip` 처럼 날짜만 쓰면, 내용만 바뀌었을 때 최신인지 구분할 수 없다.)
 
 | 버전 | 날짜 | 내용 |
@@ -120,6 +125,7 @@ VERSION 파일 (2줄)
 | 1.4.0 | 2026-11-17 | **결과 파일 정리 방식 변경** — 4개 이상이면 최신 것까지 **전부** `자동점검결과` 폴더로 이동(바탕화면에는 이번 결과 1개만), 안내를 결과 txt·콘솔 양쪽에 표시. **3개월(90일) 지난 결과 파일 자동 삭제**(`resultRetentionDays`, 묻지 않음, 이 키트가 만든 결과 txt만) — §12.22 |
 | 1.5.0 | 2026-11-18 | **피드백 GitHub 자동 업로드** — 동의(y)/비동의(n·Enter) 선택, 동의 시 GraphQL `createDiscussion` 로 업로드 후 로컬 파일 삭제. **개인정보 마스킹 + 악성/이상 코드 검증**(`<BLOCKED>` 치환, 15/15 SelfTest). 실행 결과를 바탕화면 `자동유지보수_피드백상태.txt` 에 기록. REST 404 문제를 GraphQL로 해결 |
 | 1.6.0 | 2026-11-18 | **시스템 언어 대응** — 한국어가 아니면 바탕화면 바로가기를 `maintenance` / `maintenance remove` / `maintenance feedback` 로 생성. SelfTest(테스트 결과)·피드백 상태 파일·콘솔·차단 패턴 이름까지 `L(한/영)` 헬퍼로 언어 추종. PowerShell 5.1 UI 문화권이 `en-US`여도 사용자 언어 목록·시스템 로캘을 확인해 한글을 놓치지 않음. 언어 전환 재설치 시 이전 바로가기 양쪽 세트 정리 |
+| 1.7.0 | 2026-11-18 | **영어권 이름/결과 txt 영어 출력** — 바로가기를 `auto-maintenance` / `remove maintenance` / `feedback maintenance` 로 변경(v1.6 이름도 제거 대상에 포함). 결과 txt 파일명·보관 폴더(`maintenance results`)·요약·상세 로그 전체를 영어로 출력(한글 문구 치환 맵, 실측 한글 0자). 실패 리포트 `auto-maintenance_failed_*.txt`, 정리/피드백 결과 파일 탐지에 영어 패턴 추가. 한국어 모드는 기존 동작 그대로 |
 
 ## 바탕화면 결과 파일 정리 + 자동 실행 콘솔 표시 (2026-11-17, v1.3.0 / v1.4.0)
 
@@ -140,7 +146,7 @@ VERSION 파일 (2줄)
 
 ### ③ 3개월(90일) 지난 결과 파일은 자동 삭제한다 (v1.4.0)
 
-- 대상은 **이 키트가 만든 결과 txt 만** — `자동유지보수_*.txt`, `MaintenanceReport_*.txt`.
+- 대상은 **이 키트가 만든 결과 txt 만** — `자동유지보수_*.txt`, `MaintenanceReport_*.txt`, `auto-maintenance_*.txt`(v1.7.0).
   사용자가 만든 다른 파일·폴더는 절대 건드리지 않는다.
 - 기준은 파일의 수정 날짜(마지막으로 쓴 시각)이며 `resultRetentionDays`(기본 **90일**)를 넘으면 지운다.
   `0` 이하로 두면 자동 삭제를 끈다.
@@ -678,7 +684,10 @@ Discussions: https://github.com/argenluna/maintenance/discussions
 | `install.ps1` | 설치: 승격 → 문법검사 → 예약 작업 등록 → 바로가기 3개 → 첫 점검 | 1회 |
 | `readme.txt` | 사용 방법 (일반 사용자용 요약) | |
 | `newbie.txt` | **완전 초보자용 안내서** — 38개 검사를 레고·집·주방 비유로 설명 | |
-| `run-now.ps1` | "지금 점검" (`run-maintenance.ps1 -Force` + 결과 요약) | 바로가기 대상 |
+| `run-now.ps1` | "지금 점검" (`run-maintenance.ps1 -Force` + 결과 요약) + **v1.8.0 새 버전 알림** | 바로가기 대상 |
+| `update-common.ps1` | GitHub Releases 조회 / 버전 비교 / 3버튼 알림창 / `update-skip.txt` 관리 (v1.8.0) | `run-now.ps1`·`업데이트.ps1` 이 dot-source |
+| `업데이트.ps1` / `update.ps1` | 최신 ZIP+SHA256 검증 → 새 버전 폴더 생성 → 상태 이어받기 → `install.ps1 -NoFirstRun` 재등록 (v1.8.0) | 알림창 "업데이트" 버튼 대상 |
+| `update-skip.txt` | "다시 알리지 않음"으로 지정한 버전 (런타임 생성) | git 미포함 |
 | `feedback.ps1` | **마스킹+악성코드 검증 → 동의/비동의 선택 → GitHub Discussion 자동 업로드** (`-SelfTest`, `-DryRun` 지원) | 바로가기 대상 |
 | `자동유지보수_피드백상태.txt` (바탕화면) | 마지막 피드백 실행 결과(성공/실패/비동의·URL·오류·차단 건수), 덮어쓰기 | 실행 결과 가시화 |
 | `uninstall.ps1` | 예약 작업/바로가기 제거 (로그·설정 보존) · `-RestoreAds` = 광고 설정만 복원 | 바로가기 대상 |
@@ -698,6 +707,27 @@ Discussions: https://github.com/argenluna/maintenance/discussions
 **구 자동 등록 블록**(`OpenCode-Maintenance-Scheduled`/`-Idle`, SYSTEM 12h/1h)도 제거했다.
 이제 예약 작업은 `install.ps1` 이 등록하는 `OpenCode-Maintenance` **하나뿐**이다.
 (구 check 모드는 `registerTask=false` 일 때 `OpenCode-Maintenance-*` 를 일괄 삭제하는 부작용도 있었다.)
+
+## 새 버전 알림 / 업데이트 (v1.8.0)
+
+- **1단계(기본)**: 사용자가 바탕화면 "지금 점검"을 열 때 `update-common.ps1`이
+  `https://api.github.com/repos/argenluna/maintenance/releases?per_page=100` 을 조회한다.
+  현재 `VERSION`보다 높은 릴리스가 있으면 커스텀 WinForms 창을 띄운다.
+  - 문구: `현재 vX보다 n버전 뒤인 vY가 나왔습니다 / 새로운 기능이 m가지 추가되었습니다 / 업데이트 해보시겠습니까?`
+  - `n` = 현재보다 새 릴리스 수, `m` = 새 릴리스 본문의 목록 항목(`-`, `*`, `·`, `1.`) 수.
+  - 버튼: **업데이트**(OK) / **취소**(Cancel) / **다시 알리지 않음**(Ignore).
+  - 예약 실행(`run-maintenance.ps1`)에서는 창을 띄우지 않는다(사용자가 직접 열었을 때만).
+  - GitHub 연결 실패·API 오류는 조용히 무시하고 점검을 계속한다.
+- **2단계**: `업데이트` 클릭 시 ZIP에 포함된 `업데이트.ps1`(영문 `update.ps1`)이 관리자 권한으로 실행된다.
+  1. 최신 릴리스의 `AutoMaintenance_v*.zip` 과 `.sha256`을 내려받아 **SHA-256 검증**
+  2. 기존 설치 폴더 **옆**에 `AutoMaintenance_v<새버전>` 폴더 생성
+  3. `.last_*`, `config.json`, `*-state.json`, `last-result.json`, `status.json`, `adbackup`, `update-skip.txt`, `logs` 를 복사(기존 폴더는 유지)
+  4. 새 폴더의 `install.ps1 -NoFirstRun -NoPause` 로 예약 작업·바로가기를 새 경로로 재등록
+  5. 기존 폴더는 **삭제하지 않고 롤백용으로 남김**
+- 배포 시 **반드시 GitHub Release(v1.8.0)에 ZIP과 `.sha256`을 첨부**해야 한다.
+  (ZIP만 저장소 `dist/`에 두면 `/releases/latest`가 비어 알림이 동작하지 않는다)
+- `run-maintenance.ps1`: `status.json`이 없을 때 강제 실행 로그에 `17758482h since last run`이
+  찍히던 문제를 `no previous run`으로 표시하도록 수정(v1.8.0).
 
 ## 참고
 - 관리자 권한 필요 (`-Mode check`가 아니면 자동 상승).

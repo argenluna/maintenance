@@ -97,6 +97,44 @@ try {
 } catch { }
 $kitVersionText = if ($kitVersionDate) { "v$kitVersion ($kitVersionDate)" } else { "v$kitVersion" }
 
+# --- Windows 언어 감지 (v1.7.0): 한국어면 ko, 아니면 en ---
+# PowerShell 5.1 의 CurrentUICulture 는 설치 언어(en-US)를 반환할 수 있어 모든 후보를 훑는다.
+function Get-KitLanguage {
+  $tags = @()
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentUICulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $l = @(Get-WinUserLanguageList) | Select-Object -First 1
+    if ($l -and -not [string]::IsNullOrWhiteSpace($l.LanguageTag)) { $tags += $l.LanguageTag }
+  } catch { }
+  try {
+    $t = [System.Globalization.CultureInfo]::CurrentCulture.Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  try {
+    $t = (Get-WinSystemLocale).Name
+    if (-not [string]::IsNullOrWhiteSpace($t)) { $tags += $t }
+  } catch { }
+  foreach ($tag in @($tags | Where-Object { $_ })) {
+    if ($tag -match '^ko([-_]|$)') { return 'ko' }
+  }
+  return 'en'
+}
+$script:kitLang = Get-KitLanguage
+function L {
+  param([string]$Ko, [string]$En)
+  if ($script:kitLang -eq 'ko') { return $Ko }
+  return $En
+}
+# 결과 txt 파일명/보관 폴더 (v1.7.0): 한국어=기존 이름 / 그 외=영어 이름
+$script:resultPrefix    = if ($script:kitLang -eq 'ko') { '자동유지보수_' } else { 'auto-maintenance_' }
+$script:resultFailPrefix = if ($script:kitLang -eq 'ko') { '자동유지보수_실패_' } else { 'auto-maintenance_failed_' }
+$script:resultFolderName = if ($script:kitLang -eq 'ko') { '자동점검결과' } else { 'maintenance results' }
+# 정리/보관 대상: 언어 전환 전 파일까지 모두 포함(사용자 파일은 패턴이 달라 건드리지 않음).
+$script:resultFilePatterns = @('자동유지보수_*.txt', 'MaintenanceReport_*.txt', 'auto-maintenance_*.txt')
+
 # 진행률 표시용 전역 변수 사전 초기화 (StrictMode 에러 방지)
 $script:stepBarPending = $false
 $script:progressTotal = 38   # 2026-11-09: AdQuiet/AdFilter 2단계 추가(36 -> 38)
@@ -120,7 +158,7 @@ $defaults = @{
   #   "유휴기간에는 cmd 창이 보이게 돌아가고, 사용 중에는 헤드리스로 결과 파일만 저장되게 해달라."
   #   0 = 항상 보이게, N = N분 이상 입력이 없으면(유휴) 보이게. 직접 실행은 이 값과 무관하게 항상 보인다.
   idleConsoleMinutes       = 5
-  # 결과 txt(자동유지보수_*.txt / MaintenanceReport_*.txt) 보관 일수 (2026-11-17, v1.4.0 사용자 요청)
+  # 결과 txt(자동유지보수_*.txt / MaintenanceReport_*.txt / auto-maintenance_*.txt) 보관 일수 (2026-11-17, v1.4.0 / v1.7.0)
   #   "날짜상 3개월 이상 지난 결과 파일은 자동삭제하고" → 기본 90일 넘은 파일만 자동 삭제(묻지 않음).
   #   0 이하 = 자동 삭제 끄기. 이 키트가 만든 결과 txt 만 대상이며 사용자 파일은 건드리지 않는다.
   resultRetentionDays      = 90
@@ -387,9 +425,9 @@ function Invoke-DeleteReview {
   }
 
   $decisionText = switch ($decision) {
-    'yes'  { if ([string]$script:deletePolicy -eq 'all') { '지움 (앞에서 한 번에 승인)' } else { '지움 (사용자가 y 선택)' } }
-    'no'   { if ([string]$script:deletePolicy -eq 'none') { '그대로 둠 (앞에서 한 번에 보류)' } else { "그대로 둠 (사용자가 '아니오' 선택)" } }
-    default { '그대로 둠 (자동 실행 — 물어볼 사람이 없어 보류)' }
+    'yes'  { if ([string]$script:deletePolicy -eq 'all') { L '지움 (앞에서 한 번에 승인)' 'Deleted (approved earlier for all)' } else { L '지움 (사용자가 y 선택)' 'Deleted (user chose y)' } }
+    'no'   { if ([string]$script:deletePolicy -eq 'none') { L '그대로 둠 (앞에서 한 번에 보류)' 'Left as-is (skipped earlier for all)' } else { L "그대로 둠 (사용자가 '아니오' 선택)" 'Left as-is (user chose No)' } }
+    default { L '그대로 둠 (자동 실행 — 물어볼 사람이 없어 보류)' 'Left as-is (automatic run - nobody to ask, deferred)' }
   }
 
   # --- 실행 ---
@@ -601,7 +639,7 @@ function Move-OldDesktopReports {
     [string]$DesktopPath,
     [int]$Threshold = 4,
     [int]$IncomingCount = 1,
-    [string]$FolderName = '자동점검결과'
+    [string]$FolderName = $script:resultFolderName
   )
   $info = [pscustomobject]@{ Folder = ''; Moved = 0; Paths = @(); Error = '' }
   if ([string]::IsNullOrWhiteSpace($DesktopPath) -or -not (Test-Path -LiteralPath $DesktopPath)) {
@@ -609,7 +647,7 @@ function Move-OldDesktopReports {
     return $info
   }
   $files = @()
-  foreach ($pat in @('자동유지보수_*.txt', 'MaintenanceReport_*.txt')) {
+  foreach ($pat in $script:resultFilePatterns) {
     $files += @(Get-ChildItem -LiteralPath $DesktopPath -Filter $pat -File -ErrorAction SilentlyContinue)
   }
   if ($files.Count -eq 0) { return $info }
@@ -649,7 +687,7 @@ function Move-OldDesktopReports {
 
 # 3개월(기본 90일) 이상 지난 결과 파일을 **자동 삭제**한다 (2026-11-17, v1.4.0 사용자 요청).
 #   "날짜상 3개월 이상 지난 결과 파일은 자동삭제하고"
-#   - 지우는 대상은 이 키트가 만든 결과 txt 뿐이다(자동유지보수_*.txt, MaintenanceReport_*.txt).
+#   - 지우는 대상은 이 키트가 만든 결과 txt 뿐이다(자동유지보수_*.txt, MaintenanceReport_*.txt, auto-maintenance_*.txt).
 #     사용자가 만든 다른 파일·폴더는 절대 건드리지 않는다.
 #   - 검색 위치: 바탕화면 + 그 안의 '자동점검결과' 폴더(하위 폴더는 보지 않는다).
 #   - 삭제한 파일의 전체 경로·크기·날짜를 돌려줘서 결과 txt / 로그 / last-result.json 에 남긴다(복구 확인용).
@@ -657,7 +695,7 @@ function Remove-OldResultFiles {
   param(
     [string]$DesktopPath,
     [int]$RetentionDays = 90,
-    [string]$FolderName = '자동점검결과'
+    [string]$FolderName = $script:resultFolderName
   )
   $info = [pscustomobject]@{ Deleted = 0; Bytes = 0; Paths = @(); Items = @(); Error = '' }
   if ([string]::IsNullOrWhiteSpace($DesktopPath) -or -not (Test-Path -LiteralPath $DesktopPath)) {
@@ -671,7 +709,7 @@ function Remove-OldResultFiles {
   $bytes = 0.0
   foreach ($dir in @($DesktopPath, (Join-Path $DesktopPath $FolderName))) {
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
-    foreach ($pat in @('자동유지보수_*.txt', 'MaintenanceReport_*.txt')) {
+    foreach ($pat in $script:resultFilePatterns) {
       $old = @(Get-ChildItem -LiteralPath $dir -Filter $pat -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $cutoff })
       foreach ($of in $old) {
         try {
@@ -1024,26 +1062,26 @@ trap {
     if ($errPos) { try { Add-Content -Path $logPath -Value $errPos -Encoding UTF8 } catch { } }
     $failDir = if (-not [string]::IsNullOrWhiteSpace($ReportTo)) { $ReportTo } else { [Environment]::GetFolderPath('Desktop') }
     if (-not [string]::IsNullOrWhiteSpace($failDir) -and (Test-Path $failDir)) {
-      $failFile = Join-Path $failDir ("자동유지보수_실패_" + (Get-Date -Format 'yyyyMMdd_HHmm') + ".txt")
+      $failFile = Join-Path $failDir ($script:resultFailPrefix + (Get-Date -Format 'yyyyMMdd_HHmm') + ".txt")
       $failLines = @()
-      $failLines += '================ 자동 유지보수 — 점검 중단 ================'
-      $failLines += ('실행: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm'))
-      $failLines += ('버전: ' + $kitVersionText)
-      $failLines += '점검이 끝나기 전에 오류로 중단되었습니다.'
+      $failLines += L '================ 자동 유지보수 — 점검 중단 ================' '================ Auto Maintenance - Check Aborted ================'
+      $failLines += ((L '실행: ' 'Run: ') + (Get-Date -Format 'yyyy-MM-dd HH:mm'))
+      $failLines += ((L '버전: ' 'Version: ') + $kitVersionText)
+      $failLines += (L '점검이 끝나기 전에 오류로 중단되었습니다.' 'The check stopped due to an error before completion.')
       $failLines += ''
-      $failLines += ('오류: ' + $errMsg)
-      if ($errPos) { $failLines += ('위치: ' + $errPos) }
+      $failLines += ((L '오류: ' 'Error: ') + $errMsg)
+      if ($errPos) { $failLines += ((L '위치: ' 'Location: ') + $errPos) }
       $failLines += ''
-      $failLines += '로그 파일을 함께 보내주시면 원인을 확인할 수 있습니다:'
+      $failLines += L '로그 파일을 함께 보내주시면 원인을 확인할 수 있습니다:' 'Please send the log file as well so the cause can be identified:'
       $failLines += ('  ' + $logPath)
       $failLines += ''
-      $failLines += '※ 파일 삭제·설정 변경은 실행되지 않았습니다(중단됨).'
+      $failLines += L '※ 파일 삭제·설정 변경은 실행되지 않았습니다(중단됨).' 'NOTE: No files were deleted and no settings were changed (aborted).'
       $failLines | Out-File -FilePath $failFile -Encoding UTF8
-      Write-Output "점검 중단 리포트: $failFile"
+      Write-Output (L "점검 중단 리포트: $failFile" "Aborted-check report: $failFile")
     }
   } catch {
     # 실패 리포트를 만들지 못한 경우에도 원인을 남긴다(진단용).
-    try { Write-Output ("점검 중단 리포트 생성 실패: " + [string]$_.Exception.Message) } catch { }
+    try { Write-Output ((L '점검 중단 리포트 생성 실패: ' 'Failed to create aborted-check report: ') + [string]$_.Exception.Message) } catch { }
     try { Add-Content -Path $logPath -Value ("FATAL-REPORT: " + [string]$_.Exception.Message) -Encoding UTF8 } catch { }
   }
   Exit-Maintenance -ExitCode 1
@@ -4751,7 +4789,7 @@ try {
 # --- 3개월 이상 지난 결과 파일 자동 삭제 (2026-11-17, v1.4.0 사용자 요청) ---
 #   "날짜상 3개월 이상 지난 결과 파일은 자동삭제하고"
 #   기존(v1.2.0~v1.3.1)에는 '7일 이상'을 지우기 전 확인 목록으로 물어봤다. 이제는 이 키트가 만든
-#   결과 txt(자동유지보수_*.txt / MaintenanceReport_*.txt)만 resultRetentionDays(기본 90일) 기준으로
+#   결과 txt(자동유지보수_*.txt / MaintenanceReport_*.txt / auto-maintenance_*.txt)만 resultRetentionDays(기본 90일) 기준으로
 #   **묻지 않고 자동 삭제**한다. 사용자가 만든 다른 파일은 이름 패턴이 달라 대상이 되지 않는다.
 #   리포트를 쓰기 전에 정리해야 (a) 이번 리포트에 삭제 내역이 들어가고 (b) 방금 만든 파일과 섞이지 않는다.
 if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
@@ -4920,6 +4958,284 @@ try { Write-EventLog -LogName Application -Source 'Maintenance' -EntryType $(if 
 try { Add-Content -Path $logPath -Value '[SUMMARY_END]' -Encoding UTF8 } catch { }
 
 # ============================================================
+# v1.7.0: 영어 모드에서 상세 로그의 한글 문구를 영어로 바꾼다.
+#   요약 블록은 L() 로 이미 번역되지만, 상세 로그는 원본 로그(한글 권장문구 등)를
+#   그대로 포함하므로 여기서 문구 단위로 치환한다. 긴 문구를 먼저 처리해
+#   짧은 조각이 먼저 치환되는 것을 막는다([ordered] 사용).
+# ============================================================
+$script:reportEnglishMap = [ordered]@{
+  'Windows 정품 인증이 필요합니다 (설정 > 시스템 > 정품 인증). 미인증 시 보안 업데이트가 중단됩니다.' = 'Windows is not activated (Settings > System > Activation). Security updates are paused until activated.'
+  'BIOS/UEFI 설정에서 Secure Boot를 켜세요 (부팅 무결성 보호). 리그 오브 레전드·발로란트 등 일부 게임(안티치트 Vanguard)은 Windows 11 에서 Secure Boot + TPM 2.0 이 필요합니다.' = 'Enable Secure Boot in BIOS/UEFI (boot integrity protection). Some games (e.g. Vanguard anti-cheat) require Secure Boot + TPM 2.0 on Windows 11.'
+  'TPM이 준비되지 않았습니다. BIOS에서 fTPM/PTT를 켜고 tpm.msc 에서 상태를 확인하세요.' = 'TPM is not ready. Enable fTPM/PTT in BIOS and check status in tpm.msc.'
+  'WinRE BCD 등록이 손상되었습니다. 관리자 PowerShell에서 reagentc /disable 후 /enable 로 재등록하세요.' = 'WinRE BCD registration is damaged. In admin PowerShell, run reagentc /disable then /enable.'
+  '관리자 PowerShell에서 winmgmt /resetrepository 실행 후 재부팅 (마지막 수단)' = 'As a last resort, run winmgmt /resetrepository in admin PowerShell and reboot.'
+  '그래픽 드라이버 충돌이 감지되었습니다. GPU 제조사 사이트에서 최신 드라이버로 업데이트하거나 DDU로 기존 드라이버를 완전 제거 후 재설치하세요.' = 'GPU driver conflict detected. Update to the latest driver from the GPU vendor, or fully remove the old driver with DDU and reinstall.'
+  '이벤트 원시 데이터에 STORPORT(스토리지 스택) 흔적이 있습니다. CPU 전압 문제로 단정하지 말고 SSD/HDD SMART·케이블·포트를 우선 점검하세요.' = 'Raw event data shows STORPORT (storage stack) traces. Do not assume CPU voltage issues; check SSD/HDD SMART, cables and ports first.'
+  '하드웨어 오류(WHEA)가 감지되었습니다. 원시 데이터의 ErrorSource/드라이버 토큰을 확인하고, CPU/메모리 오버클럭 설정 또는 문제 장치를 점검하세요.' = 'Hardware error (WHEA) detected. Check ErrorSource/driver tokens in raw data and review CPU/memory overclock settings or the failing device.'
+  '광고 차단은 100%가 아닙니다. 앱 안에 직접 그려지는 광고와 이미 설치된 광고 앱은 막히지 않습니다(이 키트는 파일 삭제·앱 제거를 하지 않습니다).' = 'Ad blocking is not 100%. In-app ads and already-installed ad apps are not blocked (this kit does not delete files or uninstall apps).'
+  '되돌리기: 바탕화면 "자동 유지보수 제거" → 광고 설정 복원, 또는 uninstall.ps1 -RestoreAds' = 'To revert: desktop "remove maintenance" -> Restore ad settings, or uninstall.ps1 -RestoreAds'
+  'DNS 복원에 실패했습니다. 네트워크 어댑터 DNS 설정을 직접 확인하세요(어댑터를 삭제/교체하면 자동 복원 불가).' = 'DNS restore failed. Check adapter DNS settings manually (automatic restore is not possible if the adapter was removed/replaced).'
+  '서비스는 Windows 구동에 필수적입니다. 이벤트 뷰어에서 오류 코드를 확인하고 시스템 복원 또는 Windows 복구를 고려하세요.' = 'service is essential for Windows. Check the error code in Event Viewer and consider System Restore or Windows recovery.'
+  '서비스를 시작할 수 없습니다. services.msc에서 수동으로 시작하거나 시스템 복원을 고려하세요.' = 'service could not be started. Start it manually in services.msc or consider System Restore.'
+  '광고/추천 스위치를 껐습니다 → 설정·시작 메뉴의 "추천/팁"과 잠금화면 문구가 달라질 수 있습니다(기능에는 영향 없음).' = 'Ad/recommendation switches turned off -> "Tips/suggestions" in Settings/Start and lock-screen text may change (no impact on functionality).'
+  '광고/추천 스위치는 이미 꺼져 있습니다 → 설정·시작 메뉴의 "추천/팁"이 보이지 않는 것이 정상입니다.' = 'Ad/recommendation switches are already off -> not seeing "Tips/suggestions" in Settings/Start is normal.'
+  'adBlockExtraDomains 에는 정확한 도메인만 넣으세요(와일드카드/URL 불가):' = 'adBlockExtraDomains accepts exact domains only (no wildcards/URLs):'
+  ' 개를 막았습니다 → 앱 로그인·설치·업데이트가 실패할 수 있습니다. 그때는 adBlockAllowDomains 에 예외를 넣거나 adBlockEnabled=false 로 끄세요.' = ' ad domains via hosts -> app sign-in/install/update may fail. If so, add exceptions in adBlockAllowDomains or set adBlockEnabled=false.'
+  ')로 바꿨습니다 → 공유기·프린터·NAS 같은 내부 주소를 못 찾거나 VPN/보안 프로그램과 충돌할 수 있습니다.' = ') -> local addresses (router/printer/NAS) may not resolve, or conflicts with VPN/security software may occur.'
+  'DNS 필터 서버가 응답하지 않습니다. 인터넷이 안 되면 adDnsEnabled=false 로 되돌리세요.' = 'DNS filter server is not responding. If internet stops working, revert adDnsEnabled=false.'
+  'hosts 파일에 차단 목록을 쓰지 못했습니다(권한/백신 잠금 가능).' = 'Could not write the blocklist to the hosts file (permissions or antivirus lock possible).'
+  'adDnsEnabled=true 인데 adDnsServers 가 올바른 IPv4 주소가 아닙니다.' = 'adDnsEnabled=true but adDnsServers is not a valid IPv4 address.'
+  '복구 파티션/Winre.wim 확인 후 관리자 PowerShell에서 reagentc /enable 실행' = 'Check recovery partition/Winre.wim, then run reagentc /enable in admin PowerShell'
+  '건 만료/임박 — certlm.msc 에서 갱신하거나 불필요 인증서를 제거하세요.' = ' expired/expiring - renew in certlm.msc or remove unneeded certificates.'
+  '드라이브의 여유 공간이' = 'free space:'
+  '메모리 사용량이' = 'Memory usage is'
+  '여유 메모리가' = 'Free memory is'
+  'GB 밖에 없습니다. 현재 용량으로는 디스크 속도나 이용에 문제가 있을 수 있으니, 필요한 자료를 백업한 뒤' = 'GB only. This may affect disk speed or usage. Back up important data, then free at least'
+  'GB 입니다. 필요한 자료를 백업한 뒤' = 'GB free. Back up important data, then'
+  'GB 이상 확보하시는 걸 권장합니다.' = 'GB or more is recommended.'
+  '%로 매우 높습니다. 불필요한 프로그램을 종료하거나 RAM을 증설하세요.' = '% - very high. Close unused programs or add more RAM.'
+  'MB 미만입니다. 추가 RAM 장착을 고려하세요.' = 'MB or less. Consider adding more RAM.'
+  '현재 용량으로는 디스크 속도나 이용에 문제가 있을 수 있습니다.' = 'This free space may affect disk speed or usage.'
+  '용량이 이만큼 남았으니 오래된 파일부터 삭제합니다.' = 'Some space is free; deleting the oldest files first.'
+  '여유 공간을 조금 확보하려고 오래된 임시 파일부터 정리하려고 합니다.' = 'Trying to free space by cleaning old temporary files.'
+  '필요한 자료가 있으시면 백업을 하세요.' = 'Back up any important data first.'
+  '. TEMP/TMP 위치나 config 의 tempDirs 를 확인하세요.' = '. Check TEMP/TMP locations or tempDirs in config.'
+  '는 자동 정리에서 제외했습니다 — ' = ' was excluded from automatic cleanup - '
+  '서비스가 실행 중이 아닙니다. 관리자 권한으로' = 'service is not running. As administrator, run'
+  '볼륨 섀도우 복사본 서비스가 중지되었습니다. 관리자 권한으로' = 'Volume Shadow Copy service is stopped. As administrator, run'
+  "을 실행하세요." = "."
+  '시스템 속성 > 고급 > 시작 및 복구에서 덤프 형식을' = 'In System Properties > Advanced > Startup and Recovery, set dump type to'
+  "'자동 메모리 덤프'로 설정하세요." = "'Automatic memory dump'."
+  '시스템 보호 탭에서 C: 드라이브 보호를 켜고' = 'On the System Protection tab, enable protection for C: and click'
+  "'만들기'로 복원 지점을 생성하세요." = "'Create' to make a restore point."
+  'UDP 123 차단 여부(공유기/방화벽)를 확인하세요. NTP 서버 후보:' = 'Check whether UDP 123 is blocked (router/firewall). NTP server candidates:'
+  '2026년 만료되는 Secure Boot 인증서 교체가 미완료입니다(' = 'Secure Boot certificate expiring in 2026 has not been replaced ('
+  '). 최신 누적 업데이트 설치 후 재부팅하세요.' = '). Install the latest cumulative update and reboot.'
+  '런타임 불량블록이' = 'runtime bad blocks:'
+  '건 증가(누적' = ' new (total'
+  ') — 즉시 백업 후 표면 검사/교체 검토' = ') - back up immediately, then run a surface scan / consider replacement'
+  'SATA UDMA CRC 오류가' = 'SATA UDMA CRC errors:'
+  ') — 케이블/포트 교체·재장착 후 재확인 (재할당·보류 섹터가 0이면 NAND 불량보다 링크 문제)' = ') - reseat or replace cable/port and recheck (if reallocated/pending sectors are 0, this is likely a link issue rather than NAND failure)'
+  '배터리 수명이' = 'Battery health is'
+  '%. 배터리 교체를 권장합니다.' = '% - battery replacement is recommended.'
+  'hosts 의 와일드카드 줄' = 'wildcard lines in hosts:'
+  '개는 Windows 가 지원하지 않아 차단되지 않습니다. 정확한 호스트명으로 바꾸세요:' = ' are not supported by Windows and will not block anything. Replace with exact hostnames:'
+  '광고/추천 설정을 처리하지 못했습니다:' = 'Could not process ad/recommendation settings:'
+  'hosts 로 광고 도메인' = 'Blocked'
+  'hosts 파일 처리 실패:' = 'hosts file processing failed:'
+  'DNS 를 필터링 서버(' = 'DNS changed to filtering server ('
+  'DNS 설정 처리 실패:' = 'DNS settings processing failed:'
+  '방화벽이 꺼져 있습니다(' = 'Firewall is off ('
+  ') — Windows 보안 > 방화벽 및 네트워크 보호에서 켜세요.' = ') - enable it in Windows Security > Firewall & network protection.'
+  'HuggingFace 캐시' = 'HuggingFace cache'
+  'GB — 사용하지 않는 모델 저장소만 수동 삭제 (자동 삭제 금지: 재다운로드 비용 큼)' = 'GB - manually delete only unused model repos (automatic deletion disabled: re-download is costly)'
+  '새 항목 확인/비활성화 검토:' = 'Review new startup item / consider disabling:'
+  "드라이브 최적화'에서 일정 최적화를 직접 켜세요(TRIM/조각모음이 실행되지 않고 있습니다)." = "Drive Optimize' and enable scheduled optimization (TRIM/defrag is not running)."
+  '검사가 게임 안티치트/보안 프로그램에 막혔습니다. 해결 순서: (1) 게임과 런처를 완전히 종료(트레이 아이콘까지)한 뒤 이 점검을 다시 실행, (2) 그래도 막히면 재부팅 직후(게임 실행 전)에 점검, (3) 계속 막히면 안전 모드에서' = ' scan was blocked by game anti-cheat/security software. Try: (1) fully close the game and launcher (including tray icons), then rerun this check, (2) if still blocked, run right after reboot (before launching the game), (3) if still blocked, run in Safe Mode with'
+  '드라이브는 재부팅 후 전체 검사(chkdsk /f)가 실행됩니다. 검사 중에는 전원을 끄지 마세요.' = ' drive will run a full check (chkdsk /f) after reboot. Do not power off during the scan.'
+  '드라이브 수정에 실패했습니다. 데이터를 백업하고 디스크 교체를 고려하세요.' = ' drive repair failed. Back up data and consider replacing the disk.'
+  '시스템 파일 일부를 복구하지 못했습니다(종료 코드' = 'Some system files could not be repaired (exit code'
+  ")). Windows 업데이트 후 'DISM /Online /Cleanup-Image /RestoreHealth' → 'sfc /scannow' 순서로 재시도하세요." = "). After Windows Update, retry in this order: 'DISM /Online /Cleanup-Image /RestoreHealth' -> 'sfc /scannow'."
+  'W32Time 서비스가 중지됨 — services.msc에서 시작 유형 확인 후 Start-Service w32time' = 'W32Time service is stopped - check startup type in services.msc, then Start-Service w32time'
+  '시계 오차' = 'Clock offset'
+  ' — w32tm /resync /rediscover 수동 실행. 반복되면 CMOS 배터리/가상화 시간 동기화 확인' = ' - run w32tm /resync /rediscover manually. If recurring, check CMOS battery / VM time sync'
+  ' — 자동 보정이 1초 미만으로 떨어지지 않음(재동기화 반복 또는 NTP 서버 변경 검토)' = ' - auto-correction does not drop below 1 second (consider repeated resync or changing NTP server)'
+  '회 충돌' = ' crashes'
+  ' — 이벤트 뷰어에서 상세 확인' = ' - see Event Viewer for details'
+  '부팅 지연 — 시작 프로그램/서비스 축소, 빠른 시작(fast startup) 확인, 저장장치 펌웨어·칩셋 드라이버 업데이트' = 'Slow boot - reduce startup apps/services, check fast startup, update storage firmware and chipset drivers'
+  '비정상 종료' = 'Unexpected shutdowns:'
+  '건 — 전원 공급/CMOS 배터리/메모리 안정성 점검 (WHEA 단계 결과와 함께 판단)' = ' - check power supply/CMOS battery/memory stability (review together with WHEA step results)'
+  'Windows Update 검색 실패 —' = 'Windows Update search failed -'
+  '(서비스/방화벽/프록시 확인)' = '(check service/firewall/proxy)'
+  'Windows Update 대기' = 'Pending Windows Updates:'
+  '건 — 설정 > Windows Update에서 설치 후 재부팅' = ' - install in Settings > Windows Update, then reboot'
+  '최근 누적 업데이트가' = 'Latest cumulative update was'
+  '일 전 — Windows Update로 패치 설치 권장' = ' days ago - install patches via Windows Update'
+  'Defender 서명 오래됨 — Update-MpSignature 실행 또는 Windows Update 확인' = 'Defender signatures are outdated - run Update-MpSignature or check Windows Update'
+  'Defender 보호 기능이 꺼져 있습니다(' = 'Defender protection is off ('
+  ') — Windows 보안 앱에서 켜거나 변조 방지 설정을 확인하세요.' = ') - enable in the Windows Security app or check tamper-protection settings.'
+  '재부팅 대기 상태(' = 'Reboot pending ('
+  ') — 재부팅 후 업데이트가 마무리됨' = ') - updates finish after reboot'
+  '자동 복구 실패:' = 'Auto-repair failed:'
+  '예약 작업 확인:' = 'Check scheduled task:'
+  '인증서' = 'certificate(s)'
+  # --- 자동 조치(Auto Fixes) ---
+  '볼륨 섀도 복사본) 서비스 재시작 (was ' = 'Volume Shadow Copy) service restarted (was '
+  '서비스 재시작 (was ' = ' service restarted (was '
+  '디스크 부족(' = 'Low disk space ('
+  ' → 임시 폴더 정리 ' = ' -> temp folder cleanup '
+  '크래시 덤프 형식 ' = 'Crash dump type '
+  ' → 7(자동 메모리 덤프)로 변경' = ' -> 7 (Automatic memory dump)'
+  '미니덤프 폴더 생성 (' = 'Minidump folder created ('
+  '시스템 복원 비활성 → C: 복원 활성화' = 'System Restore disabled -> C: restore enabled'
+  '복원 지점 예약 작업 활성화: ' = 'Restore point scheduled task enabled: '
+  '복원 지점 생성 (Maintenance checkpoint)' = 'Restore point created (Maintenance checkpoint)'
+  'W32Time 서비스 시작 (was ' = 'W32Time service started (was '
+  'W32Time 서비스 등록 복구 (w32tm /register)' = 'W32Time service registration repaired (w32tm /register)'
+  '시간 동기화 소스 재구성 (Local CMOS → ' = 'Time sync source reconfigured (Local CMOS -> '
+  '이벤트 로그 최대 크기 64MB 확장 (' = 'Event log max size expanded to 64MB ('
+  '섀도 복사 저장소 ' = 'Shadow copy storage '
+  ' 최대 ' = ' max '
+  'GB → 20GB 확장' = 'GB -> 20GB expanded'
+  '대화형 서비스 정리: ' = 'Interactive service cleanup: '
+  'WinRE 비활성 → reagentc /enable 로 복구' = 'WinRE disabled -> recovered with reagentc /enable'
+  'WMI 리포지토리 불일치 → winmgmt /salvagerepository 로 복구' = 'WMI repository mismatch -> repaired with winmgmt /salvagerepository'
+  '브라우저 캐시 ' = 'Browser cache '
+  'pip 캐시 ' = 'pip cache '
+  'conda 캐시 ' = 'conda cache '
+  'MB 정리 (30일 이상 경과, ' = 'MB cleaned (older than 30 days, '
+  'GB 정리 (기준 ' = 'GB cleaned (threshold '
+  'GB 초과)' = 'GB exceeded)'
+  '광고/추천 설정 원래대로 복원 (' = 'Ad/recommendation settings restored ('
+  '광고/추천 설정 끔 ' = 'Ad/recommendation settings turned off '
+  'hosts 광고 도메인 차단 (' = 'Blocked ad domains in hosts ('
+  'DNS 서버 변경 (' = 'DNS servers changed ('
+  'DNS 서버 원래대로 복원 (어댑터 ' = 'DNS servers restored (adapter(s) '
+  ' — 어댑터 ' = ' - adapter(s) '
+  '방화벽 프로필 활성화 (' = 'Firewall profile enabled ('
+  '휴지통 ' = 'Recycle Bin: '
+  '개 파일 ' = ' file(s) '
+  'MB 비움 (30일 이상 경과)' = 'MB emptied (older than 30 days)'
+  '작업을 다시 켰습니다(TRIM/조각모음 자동 실행 복구).' = ' task re-enabled (TRIM/defrag auto-run restored).'
+  '파일 시스템 오류 복구 (' = ' file system errors repaired ('
+  '시스템 파일 무결성 위반 복구 (sfc /scannow)' = 'System file integrity violations repaired (sfc /scannow)'
+  'ms 자동 보정 (w32tm /resync /force)' = 'ms auto-corrected (w32tm /resync /force)'
+  '서비스(wuauserv)가 Disabled 였음 → Manual 로 복구' = ' service (wuauserv) was Disabled -> restored to Manual'
+  ' 시작 후 재검색 성공' = ' started; re-search succeeded'
+  '건 자동 설치 완료' = ' update(s) installed automatically'
+  ' — 재부팅 필요' = ' - reboot required'
+  '일 → ' = ' days -> '
+  '일 자동 갱신 (' = ' days auto-updated ('
+  '버전 ' = 'version '
+  '보호 기능 재활성화 (' = ' protection re-enabled ('
+  '건 자동 복구' = ' item(s) auto-repaired'
+  ' 자동 복구 실패' = ' auto-repair failed'
+  '개 파일)' = ' file(s))'
+  ' 항목)' = ' item(s))'
+  # --- 삭제 확인 / 안내 ---
+  '[정리 제외]' = '[Cleanup skipped]'
+  '[삭제 확인]' = '[Deletion confirmation]'
+  '지우려는 목록:' = 'Files to delete:'
+  '지우시겠습니까? (y = 삭제 / N 또는 Enter = 그대로 두기)' = 'Delete these? (y = delete / N or Enter = keep)'
+  ' → 앞에서 한 번에 승인하셨으므로 바로 지웁니다.' = ' -> Approved for all earlier; deleting now.'
+  ' → 앞에서 "모두 그대로"를 선택하셨으므로 지우지 않습니다.' = ' -> "Keep all" was selected earlier; not deleting.'
+  '지움 (앞에서 한 번에 승인)' = 'Deleted (approved earlier for all)'
+  '지움 (사용자가 y 선택)' = 'Deleted (user chose y)'
+  '그대로 둠 (앞에서 한 번에 보류)' = 'Left as-is (skipped earlier for all)'
+  "그대로 둠 (사용자가 '아니오' 선택)" = 'Left as-is (user chose No)'
+  '그대로 둠 (자동 실행 — 물어볼 사람이 없어 보류)' = 'Left as-is (automatic run - nobody to ask, deferred)'
+  ' (기록 한도 ' = ' (record limit '
+  '개 초과)' = ' exceeded)'
+  '삭제 기록 파일: ' = 'Deletion record file: '
+  '... 외 ' = '... and '
+  ' 외 ' = ' and '
+  # --- v1.7.0 추가: 실제 리포트에서 확인된 한글 문구 ---
+  "바탕화면 '자동 유지보수 점검'을 실행하면 목록을 보여주고 지울지 물어봅니다." = 'Run the desktop "auto-maintenance" shortcut to see the list and choose what to delete.'
+  '[삭제 보류]' = '[Deletion deferred]'
+  '30일 이상' = 'older than 30 days'
+  '모듈: ' = 'Module: '
+  '예외: ' = 'Exception: '
+  '검출: ' = 'Detected: '
+  '드라이버 문제' = 'driver issue'
+  'Windows Update/제조사에서 업데이트 확인' = 'check for updates via Windows Update / the manufacturer'
+  '새 오류 유형' = 'New error type'
+  '강제 실행(-SkipCadence)' = 'forced run (-SkipCadence)'
+  '수동 시작 서비스, 필요 시 자동 실행' = 'manual-start service; auto-starts when needed'
+  '재할당=' = 'Reallocated='
+  '보류=' = 'Pending='
+  '수정불가=' = 'Uncorrectable='
+  '불량블록=' = 'BadBlocks='
+  '(이력)' = '(historical)'
+  '시간 초과' = 'timed out'
+  '서비스 중단/타임아웃' = 'Service stopped / timed out'
+  '매니페스트 오류' = 'manifest error'
+  '충돌' = 'crashes'
+  '시스템 복원 활성화됨' = 'System Restore enabled'
+  '최근 24시간 내 복원 지점 존재' = 'Restore point exists within the last 24 hours'
+  '시간 동기화 정상 (소스: ' = 'Time sync OK (source: '
+  '주요 이벤트 로그 max 크기 64MB 이상' = 'Main event log max size at least 64MB'
+  '크기 정상 (' = 'size OK ('
+  '볼륨, 모두 10GB 이상)' = 'volumes, all at least 10GB)'
+  '3rd 파티 대화형 서비스 없음 (인박스 ' = 'No third-party interactive services (inbox '
+  '는 정상)' = ' are normal)'
+  'Secure Boot 활성' = 'Secure Boot active'
+  'TPM 준비됨' = 'TPM ready'
+  '갱신 완료' = 'renewed'
+  'WinRE 등록됨' = 'WinRE registered'
+  '리포지토리 정상' = 'Repository OK'
+  '만료 임박' = 'expiring'
+  '없음 (전체 ' = 'none (total '
+  '감시 작업 ' = 'Watched tasks: '
+  '와일드카드 ' = 'wildcard '
+  '줄은 작동하지 않습니다:' = 'line(s) do not work:'
+  'adQuiet=false 이므로 이전에 바꾼 설정을 복원했습니다' = 'adQuiet=false, so previously changed settings were restored'
+  'hosts 광고 차단 꺼짐(마커 없음)' = 'hosts ad blocking off (no marker)'
+  '이더넷' = 'Ethernet'
+  '방화벽 켜짐' = 'Firewall on'
+  '기준 150GB 이내)' = 'threshold 150GB or less)'
+  '기준 ' = 'threshold '
+  '이내)' = ' or less)'
+  '신규 시작 프로그램' = 'New startup item(s)'
+  '(총 ' = '(total '
+  '마지막 실행 ' = 'Last run '
+  '(실행은 자동 유지보수 창)' = '(run from the Auto Maintenance window)'
+  ' 기준)' = ' reference)'
+  '일간 ' = ' days: '
+  '일 ' = ' days '
+  '전원 공급' = 'Power supply'
+  '디스크 백업 후 배드 섹터 검사' = 'back up the disk, then scan for bad sectors'
+  '케이블 재연결' = 'reseat cable'
+  'USB 장치 분리 후 재연결' = 'disconnect and reconnect the USB device'
+  'RAM 슬롯 재장착' = 'reseat RAM'
+  '드라이버 업데이트' = 'update drivers'
+  '재부팅' = 'reboot'
+  '업데이트' = 'update'
+  '드라이버' = 'driver'
+  '오류' = 'error'
+  '정상' = 'OK'
+  '없음' = 'none'
+  '완료' = 'completed'
+  '실패' = 'failed'
+  '서비스' = 'service'
+  '메모리' = 'memory'
+  '디스크' = 'disk'
+  '네트워크' = 'network'
+  '방화벽' = 'firewall'
+  '백업' = 'backup'
+  '검사' = 'check'
+  '설정' = 'settings'
+  '복원' = 'restore'
+  '장치' = 'device'
+  'WLANExt.exe가' = 'WLANExt.exe had'
+  '기준선 대비 신규 ' = 'new vs baseline: '
+  '기준선' = 'baseline'
+  '앱/' = 'app / '
+  '필요' = 'required'
+  '부팅 시간 OK 범위 (바탕화면까지 평균 ' = 'Boot time OK (average '
+  '일)' = ' days)'
+  ' days 전' = ' days ago'
+  '설치 대기 중인 일반 ' = 'Pending regular '
+  'Defender 정의 ' = 'Defender definitions '
+  '마지막 패치 ' = 'Last patch '
+  'Defender 서명 ' = 'Defender signatures '
+  'Defender 실시간 보호 켜짐' = 'Defender real-time protection on'
+  'reboot 대기 none' = 'no reboot pending'
+  '(삭제 전 확인 목록)' = '(deletion review)'
+  '개' = ' item(s)'
+  '건' = ' item(s)'
+}
+
+function ConvertTo-EnglishReportLine {
+  param([string]$Line)
+  if ($script:kitLang -eq 'ko') { return $Line }
+  $out = [string]$Line
+  foreach ($k in $script:reportEnglishMap.Keys) { $out = $out.Replace([string]$k, [string]$script:reportEnglishMap[$k]) }
+  # 영문/숫자 바로 뒤의 조사 '가' 는 " had " 로 정리 (예: "SearchIndexer가 3건" → "SearchIndexer had 3 item(s)").
+  $out = [regex]::Replace($out, '(?<=[A-Za-z0-9\.])가(?=\s)', ' had')
+  return $out
+}
+
+# ============================================================
 # 후처리: 데스크톱 리포트 생성 (scheduled / idle 모드에서만)
 # ============================================================
 
@@ -4934,24 +5250,22 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
   try { Write-LogEntry "REPORT: target desktop = $desktopPath" } catch { }
   if (-not [string]::IsNullOrEmpty($desktopPath)) {
     try {
-      $desktopLogPath = Join-Path $desktopPath ("자동유지보수_" + (Get-Date -Format 'yyyyMMdd_HHmm') + ".txt")
+      $desktopLogPath = Join-Path $desktopPath ($script:resultPrefix + (Get-Date -Format 'yyyyMMdd_HHmm') + ".txt")
 
       # 바탕화면 정리(이동)는 요약 단계 앞에서 이미 끝냈다(v1.4.0). 여기서는 결과만 요약에 넣는다.
       $reportMove = $script:reportMove
 
       # --- 컴맹용 요약(맨 위 3줄 + 고친 것/할 일 목록) ---
-      # 기존 리포트는 PASS/WARN 로그를 그대로 나열해 "그래서 정상이야?"를 판단하기 어려웠다.
+      # v1.7.0: 시스템 언어가 영어면 요약/파일명/상세 로그의 한글 문구를 영어로 출력한다.
       $fixList = @($script:autoFixes)
       $todoList = @($recommendations)
-      $summaryHead = '================ 자동 유지보수 결과 ================'
-      $summaryStatus = if ($allPass) { '정상 — 문제를 찾지 못했습니다.' } else { '일부 확인 필요 — 아래 내용을 보세요.' }
-      $summaryLine = '결과: {0}' -f $summaryStatus
-      $summaryWhen = '실행: {0}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm')
-      $summaryVersion = '버전: {0}' -f $kitVersionText
-      $summaryCounts = '자동으로 고친 것: {0}건 / 직접 확인할 것: {1}건 (소요 {2}초)' -f $fixList.Count, $todoList.Count, $wallSec
+      $summaryHead = L '================ 자동 유지보수 결과 ================' '================ Auto Maintenance - Results ================'
+      $summaryStatus = if ($allPass) { L '정상 — 문제를 찾지 못했습니다.' 'OK - No problems found.' } else { L '일부 확인 필요 — 아래 내용을 보세요.' 'Attention needed - See the details below.' }
+      $summaryLine = (L '결과: {0}' 'Result: {0}') -f $summaryStatus
+      $summaryWhen = (L '실행: {0}' 'Run: {0}') -f (Get-Date -Format 'yyyy-MM-dd HH:mm')
+      $summaryVersion = (L '버전: {0}' 'Version: {0}') -f $kitVersionText
+      $summaryCounts = (L '자동으로 고친 것: {0}건 / 직접 확인할 것: {1}건 (소요 {2}초)' 'Automatically fixed: {0} / Needs your review: {1} (took {2}s)') -f $fixList.Count, $todoList.Count, $wallSec
       # 2026-11-16: 10분 이상 걸리면 "무엇이 오래 걸렸는지"를 요약에 적는다.
-      #   친구 PC 실측 1706초(28분) — 대부분 SFC/DISM/CHKDSK 인데 결과 txt 에는 총 시간만 있어
-      #   "고장 난 건가?"로 오해할 수 있었다.
       $summarySlow = ''
       try {
         if ($wallSec -ge 600 -and $stepTimingMap.Count -gt 0) {
@@ -4960,46 +5274,46 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
           foreach ($ts in $topSteps) {
             $v = [double]$ts.Value
             if ($v -ge 60) {
-              $slowParts += ('{0} {1}분 {2}초' -f $ts.Key, [int][math]::Floor($v / 60), [int][math]::Round($v % 60))
+              $slowParts += ((L '{0} {1}분 {2}초' '{0} {1}m {2}s') -f $ts.Key, [int][math]::Floor($v / 60), [int][math]::Round($v % 60))
             } else {
-              $slowParts += ('{0} {1}초' -f $ts.Key, [int][math]::Round($v))
+              $slowParts += ((L '{0} {1}초' '{0} {1}s') -f $ts.Key, [int][math]::Round($v))
             }
           }
-          $summarySlow = '가장 오래 걸린 단계: ' + ($slowParts -join ', ') + ' (시스템 파일/디스크 검사는 원래 오래 걸립니다)'
+          $summarySlow = (L '가장 오래 걸린 단계: ' 'Slowest steps: ') + ($slowParts -join ', ') + (L ' (시스템 파일/디스크 검사는 원래 오래 걸립니다)' ' (system file/disk checks normally take a long time)')
         }
       } catch { }
       $summaryBody = @()
       if ($fixList.Count -gt 0) {
         $summaryBody += ''
-        $summaryBody += '[자동으로 고친 것]'
+        $summaryBody += (L '[자동으로 고친 것]' '[Automatically fixed]')
         foreach ($fx in $fixList) { $summaryBody += "  · $fx" }
       }
       if ($todoList.Count -gt 0) {
         $summaryBody += ''
-        $summaryBody += '[직접 확인할 것]'
+        $summaryBody += (L '[직접 확인할 것]' '[Needs your review]')
         foreach ($td in $todoList) { $summaryBody += "  · $td" }
       }
       # 광고 기능은 "고장"이 아니라 사용자가 켠 설정이므로, 생길 수 있는 문제를 별도 블록으로 경고한다.
       if ($script:adWarning.Count -gt 0) {
         $summaryBody += ''
-        $summaryBody += '[광고 설정 주의 — 문제가 생기면 여기부터 확인하세요]'
+        $summaryBody += (L '[광고 설정 주의 — 문제가 생기면 여기부터 확인하세요]' '[Ad settings notice - Check here first if something goes wrong]')
         foreach ($w in $script:adWarning) { $summaryBody += "  ! $w" }
       }
 
-      # 바탕화면 결과 파일을 '자동점검결과' 폴더로 옮겼으면 요약에도 남긴다(2026-11-17, v1.3.0 / v1.4.0).
+      # 바탕화면 결과 파일을 결과 보관 폴더로 옮겼으면 요약에도 남긴다(2026-11-17, v1.3.0 / v1.4.0).
       if ($reportMove -and $reportMove.Moved -gt 0) {
         $summaryBody += ''
-        $summaryBody += '[바탕화면 정리 — 결과 파일은 자동점검결과 폴더로]'
-        $summaryBody += ("  · 지난 결과 파일 {0}개를 '자동점검결과' 폴더로 옮겼습니다 (최신 것까지 모두 옮김)." -f $reportMove.Moved)
-        $summaryBody += ("  · 바탕화면에는 이번에 새로 만든 결과 파일 1개만 남습니다." )
-        $summaryBody += ("  · 옮긴 곳: {0}" -f [string]$reportMove.Folder)
+        $summaryBody += (L '[바탕화면 정리 — 결과 파일은 자동점검결과 폴더로]' '[Desktop cleanup - Results moved to the results folder]')
+        $summaryBody += ((L "  · 지난 결과 파일 {0}개를 '{1}' 폴더로 옮겼습니다 (최신 것까지 모두 옮김)." "  · Moved {0} old result file(s) to the '{1}' folder (including the newest).") -f $reportMove.Moved, $script:resultFolderName)
+        $summaryBody += (L '  · 바탕화면에는 이번에 새로 만든 결과 파일 1개만 남습니다.' '  · Only the new result file remains on the desktop.')
+        $summaryBody += ((L '  · 옮긴 곳: {0}' '  · Moved to: {0}') -f [string]$reportMove.Folder)
         foreach ($mvPath in @($reportMove.Paths)) { $summaryBody += ("      " + [string]$mvPath) }
       }
       # 3개월(기본 90일) 지난 결과 파일 자동 삭제 내역 (2026-11-17, v1.4.0).
       if ($script:resultCleanup -and $script:resultCleanup.Deleted -gt 0) {
         $summaryBody += ''
-        $summaryBody += '[오래된 결과 파일 자동 삭제 — 되돌릴 수 없음]'
-        $summaryBody += ("  · {0}일(3개월) 이상 지난 결과 파일 {1}개를 자동으로 지웠습니다 ({2})." -f $retentionDays, $script:resultCleanup.Deleted, (Format-ByteSize ([double]$script:resultCleanup.Bytes)))
+        $summaryBody += (L '[오래된 결과 파일 자동 삭제 — 되돌릴 수 없음]' '[Old result files automatically deleted - Cannot be undone]')
+        $summaryBody += ((L '  · {0}일(3개월) 이상 지난 결과 파일 {1}개를 자동으로 지웠습니다 ({2}).' '  · Automatically deleted {1} result file(s) older than {0} days (3 months) ({2}).') -f $retentionDays, $script:resultCleanup.Deleted, (Format-ByteSize ([double]$script:resultCleanup.Bytes)))
         foreach ($pe in @($script:resultCleanup.Items)) {
           $summaryBody += ("      " + [string]$pe.Name + "  (" + (Format-ByteSize ([double]$pe.Size)) + ", " + ([datetime]$pe.Date).ToString('yyyy-MM-dd HH:mm') + ")")
         }
@@ -5009,15 +5323,15 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       # 2026-11-13: 파일명만으로는 폴더가 여러 개일 때 구분이 안 되므로 **전체 경로**를 남긴다.
       if ($script:deleteReview.Count -gt 0) {
         $summaryBody += ''
-        $summaryBody += '[삭제 전 확인 목록 — 지운/보류한 파일의 전체 경로 (복구용)]'
+        $summaryBody += (L '[삭제 전 확인 목록 — 지운/보류한 파일의 전체 경로 (복구용)]' '[Deletion review - Full paths of deleted/skipped files (for recovery)]')
         foreach ($dr in $script:deleteReview) {
-          $summaryBody += ("  · [{0}] {1}개 / {2} → {3}" -f $dr.target, $dr.count, $dr.size, $dr.decisionText)
+          $summaryBody += ((L '  · [{0}] {1}개 / {2} → {3}' '  · [{0}] {1} item(s) / {2} -> {3}') -f $dr.target, $dr.count, $dr.size, $dr.decisionText)
           foreach ($nt in @($dr.notice)) { if (-not [string]::IsNullOrWhiteSpace($nt)) { $summaryBody += "      $nt" } }
           foreach ($pe in @($dr.paths)) {
             $summaryBody += ("      " + [string]$pe.path + "  (" + (Format-ByteSize ([double]$pe.size)) + ", " + [string]$pe.date + ")")
           }
-          if ($dr.pathsMore -gt 0) { $summaryBody += "      ... 외 $($dr.pathsMore)개 (기록 한도 초과 — 로그 파일 참고)" }
-          if ($dr.deletedFile) { $summaryBody += "      → 이 목록은 파일로도 저장했습니다: $($dr.deletedFile) (30일 보관)" }
+          if ($dr.pathsMore -gt 0) { $summaryBody += ((L '      ... 외 {0}개 (기록 한도 초과 — 로그 파일 참고)' '      ... and {0} more (record limit reached - see the log file)') -f $dr.pathsMore) }
+          if ($dr.deletedFile) { $summaryBody += ((L '      → 이 목록은 파일로도 저장했습니다: {0} (30일 보관)' '      -> This list was also saved to a file: {0} (kept for 30 days)') -f $dr.deletedFile) }
         }
       }
 
@@ -5030,10 +5344,10 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       if ($summarySlow) { $report += $summarySlow }
       $report += $summaryBody
       $report += ''
-      $report += '[안내] 이 점검은 파일 백업을 하지 않습니다. 중요한 파일(사진/문서)은 별도로 백업하세요.'
+      $report += (L '[안내] 이 점검은 파일 백업을 하지 않습니다. 중요한 파일(사진/문서)은 별도로 백업하세요.' '[Note] This check does not back up files. Please back up important files (photos/documents) separately.')
       $report += '=================================================='
       $report += ''
-      $report += '--- 상세 로그 (같은 내용을 기술적인 형태로) ---'
+      $report += (L '--- 상세 로그 (같은 내용을 기술적인 형태로) ---' '--- Detailed log (same information in technical form) ---')
       $report += "Timestamp: $(Get-Date -Format 'o')"
       $report += "Version: $kitVersionText"
       $report += ''
@@ -5122,6 +5436,9 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
         $report += $logContent
       }
 
+      # v1.7.0: 영어 모드에서는 상세 로그에 남은 한글 문구까지 영어로 치환한다.
+      if ($script:kitLang -ne 'ko') { $report = @($report | ForEach-Object { ConvertTo-EnglishReportLine -Line ([string]$_) }) }
+
       # 데스크톱에 쓰고, 항상 설치 폴더 logs\last-report.txt 에도 사본을 남긴다.
       #   (관리자 계정이 달라 사용자 바탕화면에 못 쓴 경우에도 결과를 찾을 수 있게)
       $savedPath = ''
@@ -5135,7 +5452,7 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       try {
         $reportCopyPath = Join-Path $logDir 'last-report.txt'
         $report | Out-File -FilePath $reportCopyPath -Encoding UTF8
-        if (-not $savedPath) { $savedPath = $reportCopyPath; Write-Output "데스크톱에 저장하지 못해 사본을 남겼습니다: $reportCopyPath" }
+        if (-not $savedPath) { $savedPath = $reportCopyPath; Write-Output ((L '데스크톱에 저장하지 못해 사본을 남겼습니다: ' 'Could not save to desktop; kept a copy at: ') + $reportCopyPath) }
         else { Write-Output "Report copy: $reportCopyPath" }
       } catch {
         Write-Output "Failed to save report copy: $_"

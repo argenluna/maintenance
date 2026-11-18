@@ -72,6 +72,64 @@ Write-Host '   자동 유지보수 점검 (지금 실행)'
 Write-Host ("   {0}" -f $kitVersionText)
 Write-Host '=========================================='
 Write-Host ''
+
+# --- v1.8.0: 새 버전 알림 (사용자가 직접 열었을 때만 / 예약 실행은 창을 띄우지 않음) ---
+#   GitHub Release 를 조회해 현재보다 새 버전이 있으면 3버튼 알림창을 띄운다.
+#   "업데이트" = ZIP 안의 업데이트 스크립트를 바로 실행(사용자 클릭이 동의).
+try {
+  $updateCommon = Join-Path $root 'update-common.ps1'
+  if (Test-Path -LiteralPath $updateCommon) {
+    . $updateCommon
+    $upd = Get-UpdateInfo -Root $root -TimeoutSec 8
+    if ($null -ne $upd) {
+      $skipVer = Get-SkipVersion -Root $root
+      if ($skipVer -ne $upd.Latest.ToString()) {
+        $lang = Get-UpdateLanguage
+        if ($lang -eq 'ko') {
+          $msg = "현재 v$($upd.Local)보다 $($upd.VersionsBehind)버전 뒤인 v$($upd.Latest)가 나왔습니다.`n"
+          if ($upd.Features -gt 0) { $msg += "새로운 기능이 $($upd.Features)가지 추가되었습니다.`n" }
+          else { $msg += "새로운 기능·변경 내역은 아래 주소에서 확인할 수 있습니다.`n" }
+          $msg += "업데이트 해보시겠습니까?`n`n"
+          $msg += "  · 업데이트 : 누르면 설치 폴더의 업데이트 스크립트가 실행되어 자동으로 업데이트 됩니다.`n"
+          $msg += "  · 취소 : 현재의 기능으로 만족하시면 취소를 누르시면 됩니다.`n"
+          $msg += "  · 다시 알리지 않음 : 이 버전을 받지 않으시면 이 버튼을 누르세요.`n`n"
+          $msg += "새로운 버전은 $($upd.PageUrl) 여기서 받으시면 됩니다."
+          $title = '새로운 버전이 나왔습니다'
+          $tUpdate = '업데이트'; $tCancel = '취소'; $tSkip = '다시 알리지 않음'
+          $updaterName = '업데이트.ps1'
+        } else {
+          $msg = "v$($upd.Local) is $($upd.VersionsBehind) version(s) behind. v$($upd.Latest) is now available.`n"
+          if ($upd.Features -gt 0) { $msg += "$($upd.Features) new features/changes were added.`n" }
+          else { $msg += "See the release page below for what changed.`n" }
+          $msg += "Would you like to update?`n`n"
+          $msg += "  · Update : runs the update script in the install folder automatically.`n"
+          $msg += "  · Cancel : keep using the current version if you are happy with it.`n"
+          $msg += "  · Don't show again : skip this version's notice.`n`n"
+          $msg += "You can also download the new version from $($upd.PageUrl)"
+          $title = 'A new version is available'
+          $tUpdate = 'Update'; $tCancel = 'Cancel'; $tSkip = "Don't show again"
+          $updaterName = 'update.ps1'
+        }
+        $choice = Show-UpdateDialog -Title $title -Message $msg -UpdateText $tUpdate -CancelText $tCancel -SkipText $tSkip
+        if ($choice -eq 'update') {
+          $updater = Join-Path $root $updaterName
+          if (Test-Path -LiteralPath $updater) {
+            Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $updater) | Out-Null
+            Write-Host '업데이트를 시작합니다. 새 창에서 진행 상황을 확인하세요.'
+            exit 0
+          }
+          Write-Host "업데이트 파일을 찾지 못했습니다: $updater" -ForegroundColor Yellow
+        } elseif ($choice -eq 'skip') {
+          Set-SkipVersion -Root $root -Version $upd.Latest.ToString()
+          Write-Host "v$($upd.Latest) 알림을 건너뜁니다. 더 높은 버전이 나오면 다시 알립니다."
+        }
+      }
+    }
+  }
+} catch {
+  Write-Host "새 버전 확인을 건너뜁니다 (GitHub 연결 실패 등): $($_.Exception.Message)" -ForegroundColor DarkGray
+}
+
 # 2026-11-16: 삭제 확인을 한 번만 묻도록 바꿨다(v1.2.0). 항목마다 묻던 안내 문구를 갱신한다.
 Write-Host '※ 파일을 지워야 하는 항목이 있으면, 점검 시작할 때 지울 수 있는 항목을 한 번 보여주고'
 Write-Host '   "한 번에 모두 지울까요? (y = 모두 지움 / n 또는 Enter = 모두 그대로 / s = 항목마다 따로 묻기)"'
