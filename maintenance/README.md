@@ -708,7 +708,7 @@ Discussions: https://github.com/argenluna/maintenance/discussions
 이제 예약 작업은 `install.ps1` 이 등록하는 `OpenCode-Maintenance` **하나뿐**이다.
 (구 check 모드는 `registerTask=false` 일 때 `OpenCode-Maintenance-*` 를 일괄 삭제하는 부작용도 있었다.)
 
-## 새 버전 알림 / 업데이트 (v1.8.0)
+## 새 버전 알림 / 업데이트 (v1.8.0, v1.8.1 문서 정비)
 
 - **1단계(기본)**: 사용자가 바탕화면 "지금 점검"을 열 때 `update-common.ps1`이
   `https://api.github.com/repos/argenluna/maintenance/releases?per_page=100` 을 조회한다.
@@ -728,6 +728,13 @@ Discussions: https://github.com/argenluna/maintenance/discussions
   (ZIP만 저장소 `dist/`에 두면 `/releases/latest`가 비어 알림이 동작하지 않는다)
 - `run-maintenance.ps1`: `status.json`이 없을 때 강제 실행 로그에 `17758482h since last run`이
   찍히던 문제를 `no previous run`으로 표시하도록 수정(v1.8.0).
+
+## v1.8.1 (문서·배포 정비)
+
+- 기능 변경 없음. **오류·문구 수정 PATCH** (AGENTS.md 규칙: 오류·문구=PATCH).
+- `LICENSE` 추가 — **비상업적 이용만 허용**, 악성코드·피싱·사기·스캠 목적의 변조·사용·배포 명시 금지, 출처 표시 필수.
+- GitHub 저장소 상단 README에 버전/Windows/라이선스 배지, 큰 다운로드 버튼, 실제 동작 GIF(`docs/preview.gif`) 추가.
+- Releases 페이지에 ZIP + `.sha256` 첨부. **공식 배포처는 `https://github.com/argenluna/maintenance/releases` 한 곳뿐**임을 명시.
 
 ## 참고
 - 관리자 권한 필요 (`-Mode check`가 아니면 자동 상승).

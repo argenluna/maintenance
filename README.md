@@ -1,10 +1,37 @@
-# Windows 자동 유지보수 키트 (v1.8.0)
-# Windows Auto Maintenance Kit (v1.8.0)
+<div align="center">
 
-🪟🔧✨ 컴퓨터를 잘 모르는 사람도 3단계로 설치하고, 이후에는 아무것도 하지 않아도 6일에 한 번 스스로 점검하는 윈도우 유지보수 도구입니다.
-🪟🔧✨ A Windows maintenance tool that anyone can install in 3 steps, then forget about — it checks itself every 6 days automatically.
+# 🪟 Windows 자동 유지보수 키트
+### Windows Auto Maintenance Kit
 
----
+**최신 버전 v1.8.1** · 3단계 설치 · 6일마다 자동 점검 · 안전 우선 · 새 버전 알림
+
+[![최신 버전](https://img.shields.io/github/v/release/argenluna/maintenance?label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&style=flat-square)](https://github.com/argenluna/maintenance/releases/latest)
+![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)
+![라이선스](https://img.shields.io/badge/license-%EB%B9%84%EC%83%81%EC%97%85%EC%A0%81%C2%B7%EB%AC%B4%EC%95%85%EC%9A%A9-orange?style=flat-square)
+[![SHA-256 검증](https://img.shields.io/badge/SHA--256-verified-brightgreen?style=flat-square)](https://github.com/argenluna/maintenance/releases/tag/v1.8.0)
+
+<br>
+
+### [⬇️ 다운로드 (ZIP)](https://github.com/argenluna/maintenance/releases/latest)
+
+[설치 방법](#빠른-시작-3단계--quick-start-3-steps) · [변경 내역](https://github.com/argenluna/maintenance/releases) · [공식 배포처 안내](#면책--disclaimer)
+
+<br>
+
+*컴퓨터를 잘 모르는 사람도 3단계로 설치하고, 이후에는 아무것도 하지 않아도 6일에 한 번 스스로 점검합니다.*
+*A Windows maintenance tool that anyone can install in 3 steps, then forget about — it checks itself every 6 days automatically.*
+
+</div>
+
+### 🎬 실제 동작 미리보기 (14초)
+
+<img src="docs/preview.gif" width="1000" alt="설치 → 바로가기 → 새 버전 알림 → 자동 업데이트 → 결과 txt">
+
+<br>
+
+> **📦 공식 배포처**: 반드시 [이 Releases 페이지](https://github.com/argenluna/maintenance/releases)에서만 받으세요. 다른 곳에서 받은 파일은 출처를 확인할 수 없습니다. 각 릴리스의 `.sha256` 파일로 무결성을 검증할 수 있습니다.
+>
+> **⚖️ 라이선스**: 비상업적 이용만 허용하며, 악성코드·사기·스캠 목적의 사용·변조·재배포를 금지합니다. 자세한 내용은 [LICENSE](LICENSE)를 참고하세요. (재배포 시 출처 표시 필수)
 
 ## 목차 / Table of Contents
 
