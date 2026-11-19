@@ -25,7 +25,7 @@
 
 ### 🎬 실제 동작 미리보기 (14초)
 
-<img src="docs/preview.gif" width="1000" alt="설치 → 바로가기 → 새 버전 알림 → 자동 업데이트 → 결과 txt">
+<img src="docs/preview.gif" width="1000" alt="자동 유지보수 점검 콘솔 → 결과 txt (다른 화면 없이)">
 
 <br>
 
