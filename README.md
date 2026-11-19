@@ -3,12 +3,12 @@
 # 🪟 Windows 자동 유지보수 키트
 ### Windows Auto Maintenance Kit
 
-**최신 버전 v1.8.1** · 3단계 설치 · 6일마다 자동 점검 · 안전 우선 · 새 버전 알림
+**최신 버전 v1.13.0** · 3단계 설치 · 6일마다 자동 점검 · 안전 우선 · 새 버전 알림
 
 [![최신 버전](https://img.shields.io/github/v/release/argenluna/maintenance?label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&style=flat-square)](https://github.com/argenluna/maintenance/releases/latest)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)
 ![라이선스](https://img.shields.io/badge/license-%EB%B9%84%EC%83%81%EC%97%85%EC%A0%81%C2%B7%EB%AC%B4%EC%95%85%EC%9A%A9-orange?style=flat-square)
-[![SHA-256 검증](https://img.shields.io/badge/SHA--256-verified-brightgreen?style=flat-square)](https://github.com/argenluna/maintenance/releases/tag/v1.8.0)
+[![SHA-256 검증](https://img.shields.io/badge/SHA--256-verified-brightgreen?style=flat-square)](https://github.com/argenluna/maintenance/releases/tag/v1.13.0)
 
 <br>
 
@@ -41,7 +41,7 @@
 | [왜 만들었나요?](#왜-만들었나요) | [Why was it made?](#why-was-it-made) |
 | [안전 원칙](#안전-원칙) | [Safety principles](#safety-principles) |
 | [빠른 시작 (3단계)](#빠른-시작-3단계) | [Quick start (3 steps)](#quick-start-3-steps) |
-| [38개 검사 항목](#38개-검사-항목) | [38 checks](#38-checks) |
+| [39개 검사 항목](#39개-검사-항목) | [39 checks](#39-checks) |
 | [결과 읽는 법](#결과-읽는-법) | [How to read the report](#how-to-read-the-report) |
 | [새 버전 알림 / 업데이트](#새-버전-알림--업데이트) | [Update notification](#update-notification) |
 | [피드백 보내기](#피드백-보내기) | [Send feedback](#send-feedback) |
@@ -73,7 +73,7 @@ install.cmd (1회 / once)
    └─ install.ps1  → 예약 작업 등록 + 바탕화면 바로가기 3개
         └─ OpenCode-Maintenance (매일 / daily 04:00 + logon+5m)
               └─ run-maintenance.ps1   (주기 게이트 / cadence gate)
-                    └─ Simple maintenance\maintenance.ps1  (38단계 실제 점검)
+                    └─ Simple maintenance\maintenance.ps1  (39단계 실제 점검)
 ```
 
 ---
@@ -98,6 +98,7 @@ This kit does it **all at once, automatically, and safely**.
 | 원칙 | 설명 |
 |---|---|
 | 자동 삭제 없음 | 임시 파일·캐시·휴지통도 목록을 보여주고 `y` 를 눌러야만 지웁니다. |
+| 드라이버도 확인 후에만 | 오래된 드라이버는 30일마다 감지하고, 목록을 보여준 뒤 직접 실행에서 `y` 를 눌러야만 지웁니다. 사용 중·부팅 필수는 제외. |
 | 100MB 남아도 자동 삭제 금지 | 디스크가 거의 꽉 찼어도 사용자 파일을 실수로 지우지 않게 하려는 안전 장치입니다. |
 | 확인은 실행당 1회 | 삭제 확인 프롬프트는 한 번 실행에 한 번만 뜹니다. |
 | 위험한 명령 금지 | `w32tm /unregister` 같은 위험한 명령은 쓰지 않습니다. |
@@ -107,6 +108,7 @@ This kit does it **all at once, automatically, and safely**.
 | Principle | Details |
 |---|---|
 | No automatic deletion | Even temp/cache/recycle-bin items are only removed after showing a list and requiring `y`. |
+| Old drivers need `y` too | Detected every 30 days; deleted only after `y` in an interactive run. In-use/boot-critical drivers are excluded. |
 | No auto-delete at 100MB free | Even when the disk is nearly full, user files are never auto-removed. |
 | One confirmation per run | The delete prompt appears at most once per execution. |
 | No dangerous commands | e.g. `w32tm /unregister` is never used. |
@@ -123,7 +125,7 @@ This kit does it **all at once, automatically, and safely**.
 3. 결과는 바탕화면 `자동유지보수_날짜시간.txt`(영어권 `auto-maintenance_날짜시간.txt`, 내용도 영어)에 적힙니다. **맨 위 3줄만** 보면 됩니다.
    - 지금 바로 점검: 바탕화면 **"자동 유지보수 점검"**(영어권 `auto-maintenance`) 더블클릭
    - 자동 점검 끄기: 바탕화면 **"자동 유지보수 제거"**(영어권 `remove maintenance`) 더블클릭 (로그·설정은 보존)
-   - 컴퓨터를 전혀 모른다면: **`maintenance/newbie.txt`** 를 먼저 읽어보세요. 38개 검사를 레고·집·주방 비유로 설명합니다.
+   - 컴퓨터를 전혀 모른다면: **`maintenance/newbie.txt`** 를 먼저 읽어보세요. 39개 검사를 레고·집·주방 비유로 설명합니다.
 
 > **시스템 언어 자동 감지 (v1.6.0~, 결과 txt 영어 출력 v1.7.0)** — 한국어가 아니면 바탕화면 바로가기가
 > `auto-maintenance` / `remove maintenance` / `feedback maintenance` 로 만들어지고, 결과 txt 파일명과 내용도 영어가 됩니다.
@@ -136,7 +138,7 @@ This kit does it **all at once, automatically, and safely**.
 3. Results go to `auto-maintenance_날짜시간.txt` on your Desktop, written entirely in English. **Read only the top 3 lines.**
    - Check now: double-click **`auto-maintenance`** on the Desktop.
    - Disable: double-click **`remove maintenance`** (logs and settings are kept).
-   - Brand new to computers? Read **`maintenance/newbie.txt`** first — it explains all 38 checks with Lego/house/kitchen analogies.
+   - Brand new to computers? Read **`maintenance/newbie.txt`** first — it explains all 39 checks with Lego/house/kitchen analogies.
 
 > **System language detection (v1.6.0, English reports v1.7.0)** — On non-Korean Windows, the Desktop shortcuts are named
 > `auto-maintenance` / `remove maintenance` / `feedback maintenance`, and the result txt file name and content are in English too.
@@ -144,7 +146,7 @@ This kit does it **all at once, automatically, and safely**.
 
 ---
 
-## 38개 검사 항목 / 38 checks
+## 39개 검사 항목 / 39 checks
 
 **한국어** — 가벼운 검사는 매 실행(6일), 무거운 검사는 주기를 늘렸습니다.
 
@@ -152,7 +154,7 @@ This kit does it **all at once, automatically, and safely**.
 |---|---|---|
 | 매 실행 / Every run | OS, CPU, Memory, Disk, Service, VSS, DiskHealth, SysFix, SecureBoot, Recovery, WMI, CertStore, TaskHealth, GPU, Battery, WHEA, DriverStore, BrowserCache, HostFile, DNS, AdQuiet, AdFilter, Network, GhostDev, PkgCache, Startup, RecycleBin, RegHive, BSOD, Defrag(상태만), TimeSync, Stability, BootPerf, Updates, Auto-Heal | 6일 / 6 days |
 | 12일 / 12 days | CHKDSK (`/scan`, 모든 NTFS 볼륨) — 2~3분 걸려서 2회에 1번 | 12일 |
-| 30일 / 30 days | SFC (`/verifyonly`) + WinSxS(DISM 분석/정리) + 정품 인증 확인 | 30일 |
+| 30일 / 30 days | SFC (`/verifyonly`) + WinSxS(DISM 분석/정리) + 정품 인증 확인 + **오래된 드라이버 감지** | 30일 |
 
 **English** — Light checks run every cycle (6 days); heavy checks are gated by elapsed days.
 
@@ -160,7 +162,7 @@ This kit does it **all at once, automatically, and safely**.
 |---|---|---|
 | Every run | OS, CPU, Memory, Disk, Service, VSS, DiskHealth, SysFix, SecureBoot, Recovery, WMI, CertStore, TaskHealth, GPU, Battery, WHEA, DriverStore, BrowserCache, HostFile, DNS, AdQuiet, AdFilter, Network, GhostDev, PkgCache, Startup, RecycleBin, RegHive, BSOD, Defrag (status only), TimeSync, Stability, BootPerf, Updates, Auto-Heal | 6 days |
 | CHKDSK | `/scan` on all NTFS volumes (2–3 min) | 12 days |
-| Heavy | SFC (`/verifyonly`), WinSxS (DISM analyze/cleanup), license status | 30 days |
+| Heavy | SFC (`/verifyonly`), WinSxS (DISM analyze/cleanup), license status, **old-driver detection** | 30 days |
 
 핵심 검사 Explained:
 - **SFC** = 레고 설명서(정상 윈도우)와 내 작품(현재 PC)을 비교해 잘못 끼운 블록을 새 블록으로 교체합니다.
@@ -168,6 +170,7 @@ This kit does it **all at once, automatically, and safely**.
 - **CHKDSK** = 책장(디스크)의 찢어진 페이지를 찾아 복구합니다. Finds and repairs torn pages in the bookshelf (disk).
 - **DiskHealth** = 하드디스크가 스스로 쓴 건강 진단서(SMART)를 읽습니다. Reads the disk's own health report (SMART).
 - **AdQuiet / AdFilter** = 윈도우 추천 알림을 끄고(선택), hosts 파일로 광고를 차단합니다(선택·되돌리기 가능). Mutes Windows promos (opt-in) and blocks ads via hosts file (opt-in, reversible).
+- **OldDrivers** = 새 버전이 이미 설치됐는데 남은 이전 드라이버를 30일마다 찾습니다. 목록을 보여주고 직접 실행에서 `y` 를 눌러야만 지웁니다. 사용 중/부팅 필수 드라이버는 제외합니다. Finds older driver packages that have a newer version already installed (every 30 days). Lists them; deletion requires `y` in an interactive run. In-use/boot-critical drivers are excluded.
 
 ---
 
@@ -324,4 +327,4 @@ Unofficial personal tool, not affiliated with Microsoft or any vendor. It change
 
 ---
 
-© 2026 — Windows Auto Maintenance Kit v1.8.0
+© 2026 — Windows Auto Maintenance Kit v1.13.0

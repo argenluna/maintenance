@@ -33,7 +33,9 @@ param(
   #   (유휴 → 보이게 / 사용 중 → 헤드리스 판단은 래퍼 한 곳에서만 한다)
   [switch]$HideConsole,
   # 결과 txt 를 만들 데스크톱 경로(관리자 계정이 다를 때 사용자 데스크톱으로 지정).
-  [string]$ReportTo = ''
+  [string]$ReportTo = '',
+  # v1.13.0: 오래된 드라이버 판정 로직만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
+  [switch]$SelfTestDrivers
 )
 
 Set-StrictMode -Version Latest
@@ -145,6 +147,132 @@ function L {
   if ($script:kitLang -eq 'ko') { return $Ko }
   return $En
 }
+
+# ============================================================
+# v1.13.0: 오래된 드라이버 감지 (순수 함수 — 가상 데이터로 SelfTest 가능)
+#   기준: "드라이버 저장소에 이미 더 새 버전이 설치되어 있는데 이전 버전이 남아 있는 것"
+#   인터넷 조회/자동 설치 없음. 사용 중이거나 부팅 필수 드라이버는 후보에서 제외.
+# ============================================================
+$script:oldDriverStatus = $null
+
+function ConvertTo-DriverVersion {
+  param([AllowNull()][string]$Text)
+  if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
+  try {
+    $parts = @($Text.Split('.'))
+    if ($parts.Count -lt 1 -or $parts.Count -gt 4) { return $null }
+    $nums = @()
+    foreach ($p in $parts) {
+      if ($p -notmatch '^\d{1,5}$') { return $null }
+      $nums += [int]$p
+    }
+    while ($nums.Count -lt 4) { $nums += 0 }
+    return [Version]::new([int]$nums[0], [int]$nums[1], [int]$nums[2], [int]$nums[3])
+  } catch { return $null }
+}
+
+function Get-OldDriverCandidatesFrom {
+  param(
+    [Parameter(Mandatory = $true)][object[]]$Drivers,
+    [hashtable]$InUseInf = @{},
+    # Win32_PnPSignedDriver 의 INF → 장치 이름(여러 장치가 한 INF를 쓸 수 있어 배열).
+    [hashtable]$DeviceNames = @{}
+  )
+  # 부팅/입력/스토리지 핵심 클래스는 설령 구버전이 남아 있어도 건드리지 않는다.
+  $protectedClasses = @('System', 'Filter', 'Boot', 'HAL', 'Disk', 'SCSI', 'Volume', 'FileSystem', 'ftdisk', 'Keyboard', 'Mouse')
+  $buckets = @{}
+  foreach ($d in $Drivers) {
+    try {
+      $inf = [string]$d.Driver
+      if ($inf -notmatch '^oem\d+\.inf$') { continue }
+      if ($d.Inbox -or $d.BootCritical) { continue }
+      if ([string]$d.ClassName -in $protectedClasses) { continue }
+      $orig = [IO.Path]::GetFileName([string]$d.OriginalFileName)
+      if ([string]::IsNullOrWhiteSpace($orig)) { continue }
+      $ver = ConvertTo-DriverVersion ([string]$d.Version)
+      if (-not $ver) { continue }
+      $key = ('{0}|{1}|{2}' -f [string]$d.ProviderName, [string]$d.ClassName, $orig).ToLowerInvariant()
+      if (-not $buckets.ContainsKey($key)) { $buckets[$key] = @() }
+      # INF 로 실제 장치 이름을 찾는다 (없으면 빈 문자열 → 출력에서 라벨 자체를 생략).
+      $devText = ''
+      $dkey = $inf.ToLowerInvariant()
+      if ($DeviceNames.ContainsKey($dkey)) {
+        $names = @($DeviceNames[$dkey] | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        if ($names.Count -gt 0) {
+          $devText = (@($names | Select-Object -First 2) -join ', ')
+          if ($names.Count -gt 2) { $devText += (L ' 외 {0}개' ' (+{0} more)') -f ($names.Count - 2) }
+        }
+      }
+      $buckets[$key] += [pscustomobject]@{
+        Inf      = $inf
+        Provider = [string]$d.ProviderName
+        Class    = [string]$d.ClassName
+        File     = $orig
+        Version  = [string]$d.Version
+        Ver      = $ver
+        InUse    = [bool]$InUseInf.ContainsKey($dkey)
+        Device   = $devText
+      }
+    } catch { }
+  }
+  $older = @()
+  foreach ($key in $buckets.Keys) {
+    $items = @($buckets[$key])
+    if ($items.Count -lt 2) { continue }
+    $newest = @($items | Sort-Object -Property Ver -Descending | Select-Object -First 1)[0]
+    foreach ($item in @($items | Where-Object { $_.Ver -lt $newest.Ver })) {
+      $older += [pscustomobject]@{
+        Inf           = $item.Inf
+        Provider      = $item.Provider
+        Class         = $item.Class
+        File          = $item.File
+        Version       = $item.Version
+        NewestInf     = $newest.Inf
+        NewestVersion = $newest.Version
+        InUse         = $item.InUse
+        Device        = $item.Device
+        Reason        = if ($item.InUse) { L '현재 장치가 사용 중' 'Currently used by a device' } else { '' }
+        Deleted       = $false
+      }
+    }
+  }
+  return @($older | Sort-Object -Property Provider, Class, File, Version)
+}
+
+if ($SelfTestDrivers) {
+  $fixtures = @(
+    [pscustomobject]@{ Driver='oem1.inf';  OriginalFileName='C:\D\a.inf'; ProviderName='ACME'; ClassName='Net';  Version='1.0.0.0'; Inbox=$false; BootCritical=$false },
+    [pscustomobject]@{ Driver='oem2.inf';  OriginalFileName='C:\D\a.inf'; ProviderName='ACME'; ClassName='Net';  Version='2.0.0.0'; Inbox=$false; BootCritical=$false },
+    [pscustomobject]@{ Driver='oem3.inf';  OriginalFileName='C:\D\b.inf'; ProviderName='ACME'; ClassName='Media'; Version='3.0.0.0'; Inbox=$false; BootCritical=$false },
+    [pscustomobject]@{ Driver='oem4.inf';  OriginalFileName='C:\D\b.inf'; ProviderName='ACME'; ClassName='Media'; Version='4.0.0.0'; Inbox=$false; BootCritical=$false },
+    [pscustomobject]@{ Driver='oem5.inf';  OriginalFileName='C:\D\c.inf'; ProviderName='ACME'; ClassName='USB';  Version='1.0.0.0'; Inbox=$false; BootCritical=$true },
+    [pscustomobject]@{ Driver='oem6.inf';  OriginalFileName='C:\D\c.inf'; ProviderName='ACME'; ClassName='USB';  Version='2.0.0.0'; Inbox=$false; BootCritical=$false },
+    [pscustomobject]@{ Driver='oem7.inf';  OriginalFileName='C:\D\d.inf'; ProviderName='Other'; ClassName='Net';  Version='1.0.0.0'; Inbox=$false; BootCritical=$false },
+    [pscustomobject]@{ Driver='oem8.inf';  OriginalFileName='C:\D\e.inf'; ProviderName='ACME'; ClassName='Net';  Version='9.0.0.0'; Inbox=$false; BootCritical=$false }
+  )
+  $use = @{ 'oem3.inf' = $true }
+  $names = @{ 'oem1.inf' = @('ACME Gigabit Ethernet'); 'oem3.inf' = @('ACME Sound Card', 'ACME Audio', 'ACME Spdif') }
+  $got = @(Get-OldDriverCandidatesFrom -Drivers $fixtures -InUseInf $use -DeviceNames $names)
+  $fail = 0
+  function Assert-OD([string]$Name, [bool]$Ok) {
+    if ($Ok) { "PASS $Name" } else { "FAIL $Name"; $script:odFail++ }
+  }
+  $script:odFail = 0
+  Assert-OD '두 버전 중 이전 것만 후보' (@($got | Where-Object Inf -eq 'oem1.inf').Count -eq 1)
+  Assert-OD '최신은 후보 아님' (@($got | Where-Object Inf -eq 'oem2.inf').Count -eq 0)
+  Assert-OD '사용 중 드라이버도 목록에 포함' (@($got | Where-Object Inf -eq 'oem3.inf').Count -eq 1)
+  Assert-OD '사용 중이면 이유 기록' ([string]($got | Where-Object Inf -eq 'oem3.inf').Reason -ne '')
+  Assert-OD '부팅 필수는 제외' (@($got | Where-Object Inf -eq 'oem5.inf').Count -eq 0)
+  Assert-OD '다른 제조사는 그룹 안 섞임' (@($got | Where-Object Inf -eq 'oem7.inf').Count -eq 0)
+  Assert-OD '단일 버전은 후보 아님' (@($got | Where-Object Inf -eq 'oem8.inf').Count -eq 0)
+  Assert-OD '최신 버전 정보 유지' ([string]($got | Where-Object Inf -eq 'oem1.inf').NewestVersion -eq '2.0.0.0')
+  Assert-OD '장치 이름 표시' ([string]($got | Where-Object Inf -eq 'oem1.inf').Device -eq 'ACME Gigabit Ethernet')
+  Assert-OD '여러 장치는 앞 2개만 표시' ([string]($got | Where-Object Inf -eq 'oem3.inf').Device -match '^ACME Sound Card, ACME Audio')
+  "SelfTestDrivers: fail=$script:odFail"
+  if ($script:odFail -gt 0) { exit 1 }
+  exit 0
+}
+
 # 결과 txt 파일명/보관 폴더 (v1.7.0): 한국어=기존 이름 / 그 외=영어 이름
 $script:resultPrefix    = if ($script:kitLang -eq 'ko') { '자동유지보수_' } else { 'auto-maintenance_' }
 $script:resultFailPrefix = if ($script:kitLang -eq 'ko') { '자동유지보수_실패_' } else { 'auto-maintenance_failed_' }
@@ -154,7 +282,7 @@ $script:resultFilePatterns = @('자동유지보수_*.txt', 'MaintenanceReport_*.
 
 # 진행률 표시용 전역 변수 사전 초기화 (StrictMode 에러 방지)
 $script:stepBarPending = $false
-$script:progressTotal = 38   # 2026-11-09: AdQuiet/AdFilter 2단계 추가(36 -> 38)
+$script:progressTotal = 39   # 2026-11-19: 오래된 드라이버 정리 추가(38 -> 39, v1.13.0)
 $script:progressCurrent = 0
 $script:stepName = ''
 $script:subStep = ''
@@ -215,6 +343,12 @@ $defaults = @{
   adQuietKeepLockScreen    = $true     # 잠금화면 "사진 로테이션"은 유지 (광고/프로모션만 끔)
   adQuietMutePromoToasts   = $true     # Store/Office/날씨 앱의 프로모션 알림 끔
   adQuietDisableTipsTasks  = $true     # SoftLanding(팁/광고 알림을 쏘는 예약 작업) 비활성
+  # --- 오래된 드라이버 정리 (2026-11-19, v1.13.0) ---
+  #   기본 켜짐. 단, 삭제는 사람이 보는 창에서 y 를 눌러야만 실행한다.
+  #   예약/유휴 실행에서는 목록만 남기고 절대 지우지 않는다.
+  #   "새 버전" = 같은 제조사·클래스·INF 의 더 새 버전이 이미 드라이버 저장소에 설치된 상태.
+  oldDriverCleanup         = $true     # false 로 바꾸면 목록만 보고 아무것도 지우지 않음
+  oldDriverCheckDays       = 30        # 감지 주기(일). SFC/WinSxS 와 함께 가장 긴 주기. 0 이하면 매 실행
   adBlockEnabled           = $false    # hosts 광고 도메인 차단 (기본 꺼짐 = 사용자가 켜야 동작)
   adBlockCategories        = @('ads')  # ads / trackers
   adBlockExtraDomains      = @()       # 사용자가 추가로 막을 도메인 (정확한 호스트명만)
@@ -241,6 +375,7 @@ function Assert-ConfigSchema {
              'tempMinAgeDays','tempCleanupMaxGB',
              'watchedTasks','watchedTaskMaxAgeDays',
              'adQuiet','adQuietKeepLockScreen','adQuietMutePromoToasts','adQuietDisableTipsTasks',
+             'oldDriverCleanup','oldDriverCheckDays',
              'adBlockEnabled','adBlockCategories','adBlockExtraDomains','adBlockAllowDomains','adBlockMaxDomains',
              'adDnsEnabled','adDnsServers')
   $types = @{ diskThresholdGB = [int]; tempDirs = [string[]]; servicesToCheck = [string[]]; restartServices = [string[]]; criticalServices = [string[]];
@@ -251,6 +386,7 @@ function Assert-ConfigSchema {
               autoInstallUpdates = [bool];
               tempMinAgeDays = [int]; tempCleanupMaxGB = [int];
               adQuiet = [bool]; adQuietKeepLockScreen = [bool]; adQuietMutePromoToasts = [bool]; adQuietDisableTipsTasks = [bool];
+              oldDriverCleanup = [bool]; oldDriverCheckDays = [int];
               adBlockEnabled = [bool]; adBlockCategories = [string[]]; adBlockExtraDomains = [string[]]; adBlockAllowDomains = [string[]]; adBlockMaxDomains = [int];
               adDnsEnabled = [bool]; adDnsServers = [string[]] }
   foreach ($prop in $cfg.PSObject.Properties) {
@@ -4852,6 +4988,119 @@ try {
   $failureReasons += "[AutoHeal] 자동 복구 실패: $($_.Exception.Message)"
 }
 
+# --- 오래된 드라이버 정리 (2026-11-19, v1.13.0) ---
+#   새 버전이 이미 저장소에 설치되었는데 이전 버전이 남은 것만 후보다.
+#   사용 중/부팅 필수/보호 클래스는 감지 단계에서 제외한다.
+#   삭제는 oldDriverCleanup=true 이고 **사람이 보는 창에서 y 를 눌렀을 때만** 한다.
+#   주기는 가장 긴 30일(oldDriverCheckDays) — 드라이버 목록은 거의 안 바뀌므로 6일마다 볼 필요가 없다.
+Write-ProgressBar 'OldDrivers'
+$script:oldDriverStatus = $null
+$oldDriverCheckDays = [int](Get-Cfg 'oldDriverCheckDays')
+$oldDriverFlag = Join-Path $scriptRoot '.last_olddrivers'
+$lastOldDrivers = Get-StampDate $oldDriverFlag
+if (-not (Test-DueByDays $lastOldDrivers $oldDriverCheckDays)) {
+  Write-LogEntry ("OldDrivers: SKIP - gated ({0}d interval, last {1})" -f $oldDriverCheckDays, $lastOldDrivers.ToString('yyyy-MM-dd'))
+} else {
+  # 시도한 번이면 스탬프를 찍는다 — 조회가 실패해도 30일 뒤에 다시 시도(매 실행 재시도 방지).
+  Set-StampDate $oldDriverFlag
+  $oldDrivers = @()
+  $oldDriverErr = ''
+try {
+  $installedDrivers = @(Get-WindowsDriver -Online -ErrorAction Stop)
+  $inUseInf = @{}
+  $deviceNames = @{}
+  try {
+    foreach ($w in @(Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue)) {
+      $infName = [string]$w.InfName
+      if ([string]::IsNullOrWhiteSpace($infName)) { continue }
+      $inUseInf[$infName] = $true
+      # oemNN.inf 만 보여주면 무엇을 담당하는 드라이버인지 알 수 없으므로 장치 이름도 같이 모은다.
+      $devName = [string]$w.DeviceName
+      if ([string]::IsNullOrWhiteSpace($devName)) { $devName = [string]$w.Description }
+      if (-not [string]::IsNullOrWhiteSpace($devName)) {
+        $dk = $infName.ToLowerInvariant()
+        if (-not $deviceNames.ContainsKey($dk)) { $deviceNames[$dk] = @() }
+        if ($devName -notin $deviceNames[$dk]) { $deviceNames[$dk] += $devName }
+      }
+    }
+  } catch { }
+  $oldDrivers = @(Get-OldDriverCandidatesFrom -Drivers $installedDrivers -InUseInf $inUseInf -DeviceNames $deviceNames)
+} catch {
+  $oldDriverErr = $_.Exception.Message
+}
+
+$script:oldDriverStatus = [pscustomobject]@{
+  Candidates = @($oldDrivers)
+  Deleted    = 0
+  Skipped    = 0
+  Asked      = $false
+  Approved   = $false
+  Error      = $oldDriverErr
+}
+
+if ($oldDriverErr) {
+  Write-LogEntry "OldDrivers: WARN - 드라이버 목록을 읽지 못했습니다: $oldDriverErr"
+} elseif ($oldDrivers.Count -eq 0) {
+  Write-LogEntry 'OldDrivers: PASS - 새 버전이 설치된 이전 드라이버 없음'
+} else {
+  Write-TestHeader ((L '[오래된 드라이버] 새 버전이 있음에도 남아 있는 이전 드라이버 {0}개' '[Old drivers] {0} older package(s) remain despite a newer version') -f $oldDrivers.Count)
+  foreach ($od in $oldDrivers) {
+    $devLabel = if ($od.Device) { (L ' [장치: {0}]' ' [device: {0}]') -f $od.Device } else { '' }
+    $line = (L '  · {0} — {1} / {2} / {3} {4}{7} → 최신 {5} ({6})' '  · {0} - {1} / {2} / {3} {4}{7} -> newer {5} ({6})') -f $od.Inf, $od.Provider, $od.Class, $od.File, $od.Version, $od.NewestVersion, $od.NewestInf, $devLabel
+    if ($od.Reason) { $line += (L '  [보류: {0}]' '  [skipped: {0}]') -f $od.Reason }
+    Write-TestHeader $line
+  }
+
+  $canAskOldDriver = ($Mode -ne 'scheduled' -and $Mode -ne 'idle' -and [Environment]::UserInteractive -and -not [Console]::IsOutputRedirected)
+  $approvedOldDriver = $false
+  if ((Get-Cfg 'oldDriverCleanup') -and $canAskOldDriver) {
+    try {
+      $script:oldDriverStatus.Asked = $true
+      $ansOldDriver = Read-Host (L '위 오래된 드라이버를 삭제하시겠습니까? (y = 삭제 / n 또는 Enter = 그대로 두기)' 'Delete the older driver packages above? (y = delete / n or Enter = keep)')
+      if ("$ansOldDriver" -match '^\s*(y|yes|예|ㅇ|1)\s*$') { $approvedOldDriver = $true }
+    } catch { }
+  }
+  $script:oldDriverStatus.Approved = $approvedOldDriver
+
+  foreach ($od in $oldDrivers) {
+    if (-not $approvedOldDriver) {
+      $why = if (-not (Get-Cfg 'oldDriverCleanup')) { L '설정에서 꺼져 있음 (oldDriverCleanup=false)' 'Disabled in config (oldDriverCleanup=false)' }
+             elseif (-not $canAskOldDriver) { L '예약 실행이라 확인을 받을 수 없어 보류' 'Scheduled run - no user available to confirm' }
+             else { L '삭제하지 않음 (사용자가 y 를 누르지 않음)' 'Not deleted (user did not answer y)' }
+      $od.Reason = if ($od.Reason) { $od.Reason + ' / ' + $why } else { $why }
+      $script:oldDriverStatus.Skipped++
+      continue
+    }
+    if ($od.Reason) { $script:oldDriverStatus.Skipped++; continue }
+    try {
+      # INF 이름은 ^oem\d+\.inf$ 로 엄격 검증됐으므로 인자 주입 여지가 없다. /uninstall 은 쓰지 않는다(장치에 설치된 드라이버를 건드리지 않기 위함).
+      $pnputilOut = @(& "$env:SystemRoot\System32\pnputil.exe" /delete-driver $od.Inf 2>&1)
+      $pnputilCode = $LASTEXITCODE
+      if ($pnputilCode -eq 0) {
+        $od.Deleted = $true
+        $script:oldDriverStatus.Deleted++
+        Add-AutoFix ((L '오래된 드라이버 삭제: {0} ({1} {2} → 최신 {3})' 'Deleted old driver: {0} ({1} {2} -> newer {3})') -f $od.Inf, $od.Provider, $od.Version, $od.NewestVersion)
+        Write-LogEntry "OldDrivers: CHANGE - 삭제 $($od.Inf) ($($od.Version) -> $($od.NewestVersion))"
+      } else {
+        $detail = @($pnputilOut | ForEach-Object { [string]$_ } | Where-Object { $_ -match '\S' } | Select-Object -Last 1)
+        $msg = if ($detail.Count -gt 0) { [string]$detail[0] } else { "pnputil exit=$pnputilCode" }
+        if ($msg.Length -gt 160) { $msg = $msg.Substring(0, 160) }
+        $od.Reason = (L '삭제 실패 — {0}' 'Deletion failed - {0}') -f $msg
+        $script:oldDriverStatus.Skipped++
+        Write-LogEntry "OldDrivers: WARN - 삭제 실패 $($od.Inf): $msg"
+      }
+    } catch {
+      $od.Reason = (L '삭제 중 오류 — {0}' 'Error while deleting - {0}') -f $_.Exception.Message
+      $script:oldDriverStatus.Skipped++
+      Write-LogEntry "OldDrivers: WARN - 삭제 오류 $($od.Inf): $($_.Exception.Message)"
+    }
+  }
+
+  $recommendations += ((L '[오래된 드라이버] 새 버전이 설치되어 있음에도 이전 드라이버 {0}개가 남아 있습니다 (삭제 {1} / 보류 {2}). 확인해보세요. 직접 실행하여 삭제 질문에 y를 누르면 삭제됩니다.' '[Old drivers] {0} older package(s) remain despite a newer version installed (deleted {1} / skipped {2}). Please review. Run the check manually and answer y at the delete prompt to remove them.') -f $oldDrivers.Count, $script:oldDriverStatus.Deleted, $script:oldDriverStatus.Skipped)
+  Write-LogEntry (('OldDrivers: WARN - 이전 드라이버 {0}개 (삭제 {1} / 보류 {2})') -f $oldDrivers.Count, $script:oldDriverStatus.Deleted, $script:oldDriverStatus.Skipped)
+}  # end of find/delete branch
+}  # end of oldDriverCheckDays gate — 감지/삭제/리포트는 30일에 한 번만
+
 # --- 3개월 이상 지난 결과 파일 자동 삭제 (2026-11-17, v1.4.0 사용자 요청) ---
 #   "날짜상 3개월 이상 지난 결과 파일은 자동삭제하고"
 #   기존(v1.2.0~v1.3.1)에는 '7일 이상'을 지우기 전 확인 목록으로 물어봤다. 이제는 이 키트가 만든
@@ -5398,6 +5647,29 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
           }
           if ($dr.pathsMore -gt 0) { $summaryBody += ((L '      ... 외 {0}개 (기록 한도 초과 — 로그 파일 참고)' '      ... and {0} more (record limit reached - see the log file)') -f $dr.pathsMore) }
           if ($dr.deletedFile) { $summaryBody += ((L '      → 이 목록은 파일로도 저장했습니다: {0} (30일 보관)' '      -> This list was also saved to a file: {0} (kept for 30 days)') -f $dr.deletedFile) }
+        }
+      }
+
+      # 오래된 드라이버: 새 버전이 있음에도 남은 것 / 삭제한 것 / 못 지운 것 + 이유 (v1.13.0)
+      if ($script:oldDriverStatus -and @($script:oldDriverStatus.Candidates).Count -gt 0) {
+        $ods = $script:oldDriverStatus
+        $summaryBody += ''
+        $summaryBody += ((L '[오래된 드라이버] 새 버전이 있음에도 남아 있는 이전 드라이버 {0}개' '[Old drivers] {0} older driver package(s) remain despite a newer version installed') -f @($ods.Candidates).Count)
+        foreach ($od in @($ods.Candidates)) {
+          $devLabel = if ($od.Device) { (L ' [장치: {0}]' ' [device: {0}]') -f $od.Device } else { '' }
+          $summaryBody += ((L '  · {0} — {1} / {2} / {3} {4}{7} → 최신 {5} ({6})' '  · {0} - {1} / {2} / {3} {4}{7} -> newer {5} ({6})') -f $od.Inf, $od.Provider, $od.Class, $od.File, $od.Version, $od.NewestVersion, $od.NewestInf, $devLabel)
+        }
+        $summaryBody += ((L '  삭제: {0}개' '  Deleted: {0}') -f $ods.Deleted)
+        foreach ($od in @($ods.Candidates | Where-Object { $_.Deleted })) {
+          $dlabel = if ($od.Device) { (L ' [장치: {0}]' ' [device: {0}]') -f $od.Device } else { '' }
+          $summaryBody += ('    · ' + $od.Inf + $dlabel + ' ' + (L '삭제 완료' 'deleted'))
+        }
+        if ($ods.Skipped -gt 0) {
+          $summaryBody += ((L '  삭제되지 않음: {0}개 — 확인해보세요. 직접 실행하여 삭제 질문에 y를 누르면 삭제됩니다.' '  Not deleted: {0} - Please review. Run the check manually and answer y at the delete prompt to remove them.') -f $ods.Skipped)
+          foreach ($od in @($ods.Candidates | Where-Object { -not $_.Deleted })) {
+            $dlabel = if ($od.Device) { (L ' [장치: {0}]' ' [device: {0}]') -f $od.Device } else { '' }
+            $summaryBody += ('    · ' + $od.Inf + $dlabel + ' — ' + $od.Reason)
+          }
         }
       }
 

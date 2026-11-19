@@ -232,6 +232,7 @@ VERSION 파일 (2줄)
 - 시간 동기화(`w32tm /resync`), 볼륨 최적화는 Windows `ScheduledDefrag` 에 위임·상태 확인
 - 시스템 복원 활성화 + 24시간 내 복원 지점 없으면 생성
 - 이벤트 기반 반복 고장 자동 치유(스풀러/검색/방화벽/TPM 등), 유령 장치·드라이버 저장소 용량 확인
+- **오래된 드라이버 감지** — 새 버전이 이미 설치됐는데 남은 이전 드라이버를 목록으로 보여주고, 직접 실행에서 `y` 를 누르면 삭제 (v1.13.0, 아래 "오래된 드라이버 정리" 참고)
 - 디스크 SMART/SSD wear, BSOD 덤프, WHEA 하드웨어 오류, 부팅 시간 추세
 - 보안 부팅/TPM/UEFI CA 2023, 인증서 만료, Windows 정품 인증, 예약 작업 생존, CRITICAL 서비스
 - Windows **광고/추천 스위치 끄기**(HKCU, 가역) — hosts/DNS 광고 차단은 기본 꺼짐(opt-in)
@@ -240,7 +241,8 @@ VERSION 파일 (2줄)
 - **파일 백업/복구** — 사진·문서는 별도 백업 필요. 이 키트는 백업 도구가 아니다
 - 맬웨어 **치료** — Defender 정의·보호 상태만 확인하고, 전체 검사는 Windows 가 자체 스케줄로 수행
 - 하드웨어 "곧 고장" 단정 — SMART 수치는 보지만 교체 시점 판정은 아님
-- 드라이버/BIOS/펌웨어 업데이트, Windows 기능 업데이트 설치(`autoInstallUpdates` 기본 꺼짐)
+- 드라이버/BIOS/펌웨어 **업데이트(설치)**, Windows 기능 업데이트 설치(`autoInstallUpdates` 기본 꺼짐) — 오래된 드라이버 "감지·삭제"는 위에서 `y` 확인 후에만 함
+- 드라이버를 **인터넷에서 최신version인지 조회/자동 설치** — 오직 로컬 드라이버 저장소에 이미 설치된 버전끼리만 비교한다
 - 프로그램 충돌 원인 수정, 계정/암호 정책, 랜섬웨어 피해 복구, 하드웨어 교체
 - **광고 앱 삭제/코드 패치** — 스위치·hosts·DNS 로만 줄인다. 앱 안에 내장된 광고는 막지 못한다
 
@@ -273,7 +275,7 @@ wrapper는 `status.json`(마지막 **시작** 시각), 내부 스크립트는 `.
 기준으로 주기를 검사한다. 두 기준점 차이 때문에 주기 경계에서 한 번 더 SKIP 되던 문제를 막기 위해
 양쪽 모두 `cadence - min(2h, cadence×10%)` 로 비교한다.
 
-## 검사 항목 (38단계)과 주기
+## 검사 항목 (39단계)과 주기
 
 주기는 **비용(실측)** 과 **검출 지연의 대가**로 정했다. 가벼운 검사는 매 실행(6일)이 가장 싸고,
 무거운 검사만 "이상이 없던 횟수"를 근거로 늘렸다.
@@ -281,6 +283,7 @@ wrapper는 `status.json`(마지막 **시작** 시각), 내부 스크립트는 `.
 | 구분 | 단계 | 주기 | 근거 (실측) |
 |------|------|------|-------------|
 | 기본 | OS, CPU, Memory, Disk, Service, VSS, DiskHealth, SysFix, SecureBoot, Recovery, WMI, CertStore, TaskHealth, GPU, Battery, WHEA, DriverStore, BrowserCache, HostFile, DNS, **AdQuiet, AdFilter**, Network, GhostDev, PkgCache, Startup, RecycleBin, RegHive, BSOD | 매 실행 (6일) | 각 단계 5초 미만(신규 5단계 합계 **0.6초**). Disk/Service/VSS 는 "지금 고쳐야 하는" 항목이라 늘리면 손해 |
+| 오래된 드라이버 | OldDrivers — 새 버전이 설치됐는데 남은 이전 드라이버 감지 | **30일** (`oldDriverCheckDays`) | 드라이버 목록은 거의 안 바뀐다. SFC/WinSxS 와 함께 **가장 긴 주기**. 목록은 보여주되 삭제는 직접 실행에서 `y` 확인 후에만 |
 | 인증 상태 | OS 정품 인증 (`licenseCheckDays`) | **30일** (`licenseCheckDays`) | 첫 조회가 **콜드 15초**(`sppsvc` 기동), 워밍 1.5초. 거의 변하지 않는 값이라 30일 게이트 |
 | 위임 확인 | Defrag — 최적화는 **하지 않고** `ScheduledDefrag` 작업 상태만 확인 | 매 실행 | 실제 최적화는 Windows가 주 1회(유지보수 창) 수행 |
 | 파일시스템 | CHKDSK (`chkdsk /scan`, 모든 NTFS 볼륨) | **12일** (`chkdskDays`) | 실측 130~190초/회. 144h의 정확히 2배 → 2회마다 1번 |
@@ -288,8 +291,8 @@ wrapper는 `status.json`(마지막 **시작** 시각), 내부 스크립트는 `.
 | 추세/상태 | TimeSync, Stability, BootPerf, Updates | 매 실행 | Updates COM 검색 10~12초, TimeSync 3샘플 약 3초 |
 | 자동 치유 | Auto-Heal | 매 실행 | 이벤트 7일 창, RecordId 중복 제거 |
 
-실행 시간(측정): 일반 실행 **약 33~45초**(2026-11-10, 38단계 · 광고 단계 포함), CHKDSK 포함 **약 194초**, SFC/WinSxS 포함 **약 6분**.
-광고 단계(AdQuiet·AdFilter)는 실측 **1초 미만**(hosts 읽기/쓰기 + HKCU 값 20여 개).
+실행 시간(측정): 일반 실행 **약 33~45초**(2026-11-10, 38단계 · 광고 단계 포함 / v1.13.0에서 OldDrivers 1단계 추가), CHKDSK 포함 **약 194초**, SFC/WinSxS 포함 **약 6분**.
+광고 단계(AdQuiet·AdFilter)는 실측 **1초 미만**(hosts 읽기/쓰기 + HKCU 값 20여 개). 오래된 드라이버 감지도 드라이버 목록 읽기만 해서 수 초 내외.
 시스템 복원이 꺼져 있던 실행은 복원 지점 생성 때문에 **약 66초**(16초 추가)가 걸린다.
 
 ### 자동 조치 (검출 → 자동 해결)
@@ -360,6 +363,40 @@ NTP 피어 재설정 시 `w32tm /unregister`, 드라이버 강제 제거, 유령
   한 번에 승인(y)해도 **이번 실행 한 번**에만 적용된다 — 다음 실행에서는 다시 묻는다.
 - 프롬프트는 사용자가 직접 실행한 경우에만 전달된다(`run-maintenance.ps1 -Force` → `-PromptForDelete`).
   예약 실행은 `-PromptForDelete` 없이 돌기 때문에 어떤 경우에도 지우지 않는다.
+
+## 오래된 드라이버 정리 (v1.13.0, 2026-11-19)
+
+새 버전이 **이미 드라이버 저장소에 설치되어 있는데** 이전 버전이 남아 있는 것만 찾는다.
+인터넷 조회도, 드라이버 자동 설치도 하지 않는다.
+
+- **감지 주기: 30일** (`oldDriverCheckDays`) — SFC/WinSxS 와 함께 이 키트에서 가장 긴 주기다.
+  드라이버 목록은 거의 안 바뀌므로 6일마다 볼 필요가 없다. 마지막 실행은
+  `Simple maintenance\.last_olddrivers` 스탬프에 기록된다(조회가 실패해도 30일 뒤 재시도).
+- **판정 기준**: 같은 제조사(`ProviderName`)·장치 클래스(`ClassName`)·INF 파일명끼리 묶어
+  버전을 비교하고, 더 새 버전이 있으면 이전 것만 후보로 삼는다.
+- **장치 이름 표시**: `Win32_PnPSignedDriver` 에서 INF 별 장치 이름을 읽어
+  `oemNN.inf [장치: ...]` 형태로 함께 적는다. 한 INF 가 여러 장치에 쓰이면 앞 2개만 표시한다.
+- **절대 후보에서 제외**: 현재 장치가 사용 중인 드라이버(`Win32_PnPSignedDriver.InfName`),
+  부팅 필수(`BootCritical`), 기본 제공(`Inbox`), 그리고 System/Filter/Boot/HAL/Disk/SCSI/
+  Volume/FileSystem/Keyboard/Mouse 등 보호 클래스.
+- **기본 켜짐**(`oldDriverCleanup=true`)이지만, **삭제는 사람이 보는 창에서 `y` 를 누를 때만**
+  실행한다. 예약/유휴 실행에서는 후보 목록만 결과 txt 에 남기고 아무것도 지우지 않는다.
+- 실제 삭제는 `pnputil /delete-driver oemNN.inf` 이며 `/uninstall` 은 쓰지 않는다
+  (장치에 설치된 드라이버를 건드리지 않기 위함). INF 이름은 `^oem\d+\.inf$` 로 엄격 검증한다.
+
+결과 txt 에는 이렇게 적힌다:
+
+```
+[오래된 드라이버] 새 버전이 있음에도 남아 있는 이전 드라이버 2개
+  · oem3.inf — ACME / Net / a.inf 1.0.0.0 [장치: ACME Gigabit Ethernet] → 최신 2.0.0.0 (oem4.inf)
+  · oem9.inf — ACME / Media / b.inf 3.0.0.0 [장치: ACME Sound Card] → 최신 4.0.0.0 (oem10.inf)  [보류: 현재 장치가 사용 중]
+  삭제: 1개
+    · oem3.inf [장치: ACME Gigabit Ethernet] 삭제 완료
+  삭제되지 않음: 1개 — 확인해보세요. 직접 실행하여 삭제 질문에 y를 누르면 삭제됩니다.
+    · oem9.inf [장치: ACME Sound Card] — 현재 장치가 사용 중
+```
+
+`oldDriverCleanup=false` 로 바꾸면 감지 자체를 끌 수 있다.
 
 ### 삭제한 파일의 전체 경로를 남긴다 — 복구용 (2026-11-13)
 
@@ -669,7 +706,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 `diskThresholdGB`(10 — **드라이브 용량을 알 수 없을 때만** 쓰는 대체 기준. 실제 판정은 그 드라이브 용량의 10%),
 `tempDirs`, `servicesToCheck`, `restartServices`, `criticalServices`,
 `idleConsoleMinutes`(5 — 자동 실행 시 이 시간 이상 유휴면 콘솔 창을 보여준다. `0` = 항상 보이게. 직접 실행은 항상 보임),
-`resultRetentionDays`(90 — 이 키트가 만든 결과 txt 를 이 일수(3개월) 넘게 지나면 자동 삭제. `0` 이하 = 끄기)
+`resultRetentionDays`(90 — 이 키트가 만든 결과 txt 를 이 일수(3개월) 넘게 지나면 자동 삭제. `0` 이하 = 끄기),
+`oldDriverCleanup`(true — 오래된 드라이버 감지·삭제 기능. `false` 면 목록도 만들지 않음),
+`oldDriverCheckDays`(30 — 오래된 드라이버 감지 주기. 가장 긴 주기. `0` 이하면 매 실행)
 — 없는 키는 스크립트 기본값이 적용된다. (`deleteConfirm` 은 2026-11-12 안전 정책으로 제거 — 삭제는 항상 y 확인)
 
 **광고 관련 키** (`Simple maintenance\config.json`):
@@ -788,6 +827,14 @@ Discussions: https://github.com/argenluna/maintenance/discussions
 - `LICENSE` 추가 — **비상업적 이용만 허용**, 악성코드·피싱·사기·스캠 목적의 변조·사용·배포 명시 금지, 출처 표시 필수.
 - GitHub 저장소 상단 README에 버전/Windows/라이선스 배지, 큰 다운로드 버튼, 실제 동작 GIF(`docs/preview.gif`) 추가.
 - Releases 페이지에 ZIP + `.sha256` 첨부. **공식 배포처는 `https://github.com/argenluna/maintenance/releases` 한 곳뿐**임을 명시.
+
+## v1.13.0 (오래된 드라이버 정리)
+
+- **기능 추가(MINOR)** — 새 버전이 이미 설치됐는데 남은 이전 드라이버를 감지하고,
+  직접 실행에서 `y` 확인 후에만 `pnputil /delete-driver` 로 삭제한다.
+  사용 중/부팅 필수/보호 클래스는 제외하고, 예약·유휴 실행은 목록만 남긴다.
+  감지 주기는 **30일**(`oldDriverCheckDays`)로 이 키트에서 가장 길다.
+- 검사 항목 38 → **39단계**. `-SelfTestDrivers` 자기검증 10/10 통과.
 
 ## 참고
 - 관리자 권한 필요 (`-Mode check`가 아니면 자동 상승).
