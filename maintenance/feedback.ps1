@@ -310,6 +310,10 @@ function Invoke-GitHubGraphQL {
     $msgs = @($resp.errors | ForEach-Object { $_.message }) -join ' / '
     throw ((L 'GitHub GraphQL 오류: ' 'GitHub GraphQL error: ') + $msgs)
   }
+  # 빈 응답이 오면 data 가 없는데도 "성공" 처리되어 로컬 파일이 삭제될 수 있다.
+  if ($null -eq $resp -or $null -eq $resp.data) {
+    throw ((L 'GitHub 응답에 data 가 없습니다(빈 응답).' 'GitHub response has no data (empty response).'))
+  }
   return $resp.data
 }
 
@@ -323,6 +327,9 @@ function Get-DiscussionTarget {
   $repoId = $data.repository.id
   if ([string]::IsNullOrWhiteSpace($repoId)) { $repoId = $ghRepoIdFallback }
 
+  if ($null -eq $data -or $null -eq $data.repository) {
+    throw ((L '저장소 정보를 가져오지 못했습니다.' 'Could not read repository information.'))
+  }
   $catId = $null
   foreach ($c in @($data.repository.discussionCategories.nodes)) {
     if ([string]$c.slug -eq 'general') { $catId = $c.id; break }
@@ -344,7 +351,13 @@ function New-FeedbackDiscussion {
   $data = Invoke-GitHubGraphQL -Query $mut `
     -Variables @{ repoId = $RepoId; catId = $CategoryId; title = $Title; body = $Body } `
     -TokenValue $TokenValue
-  return $data.createDiscussion.discussion.url
+  $url = $data.createDiscussion.discussion.url
+  # URL 이 없으면 업로드 실패로 처리한다. 성공으로 오인해 로컬 파일을 지우지 않게 하는 안전장치.
+  $expectedPrefix = '^https://github\.com/' + [regex]::Escape("$ghOwner/$ghRepo") + '/discussions/\d+(?:\?|$)'
+  if ([string]::IsNullOrWhiteSpace([string]$url) -or [string]$url -notmatch $expectedPrefix) {
+    throw ((L '업로드 확인 URL 이 올바르지 않습니다(업로드 실패로 처리).' 'Invalid upload confirmation URL (treated as failure).'))
+  }
+  return $url
 }
 
 # --- 최신 결과 txt 찾기 ---
@@ -503,11 +516,20 @@ Write-Host (L "안전 검증: 위험 패턴 $blockedCount 건 제거 [$blockedKi
 Write-Host ''
 
 $uploaded = $false
+$openedForReview = $false
 
 if ($NoUpload) {
   Write-Host (L '-NoUpload 지정: GitHub 에 올리지 않고 파일을 유지합니다.' '-NoUpload specified: not uploading to GitHub; keeping the file.')
   Write-FeedbackStatus -ResultText (L '완료 - 파일만 생성 (업로드 안 함)' 'Done - file created only (no upload)') -Detail (L "-NoUpload / 바탕화면에 유지: $outPath / 안전검증 차단 $blockedCount 건" "-NoUpload / kept on Desktop: $outPath / safety blocked $blockedCount")
 } else {
+  # 규칙 기반 마스킹/필터링은 패턴에 없는 변형을 놓칠 수 있다.
+  # 동의를 묻기 전에 파일을 먼저 열어 사용자가 직접 확인할 시간을 준다.
+  # (-Yes 는 자동화/재전송용, -DryRun 은 검증용이므로 미리보기를 생략한다.)
+  if (-not $Yes -and -not $DryRun -and -not $NoOpen) {
+    try { Invoke-Item -LiteralPath $outPath; $openedForReview = $true }
+    catch { Write-Host (L '(미리보기 실행 실패 - 위 경로의 파일을 직접 여세요)' '(Could not open preview - open the file at the path above manually)') }
+    Write-Host (L '메모장에서 내용을 확인한 뒤 아래 질문에 답해주세요.' 'Review the content in Notepad, then answer below.')
+  }
   $consent = $false
   if ($Yes) {
     $consent = $true
@@ -563,7 +585,7 @@ if ($NoUpload) {
   }
 }
 
-if (-not $uploaded -and -not $NoOpen) {
+if (-not $uploaded -and -not $NoOpen -and -not $openedForReview) {
   try { Invoke-Item -LiteralPath $outPath } catch { Write-Host (L "(메모장 자동 실행 실패 - 위 파일을 직접 여세요)" "(Could not open Notepad - please open the file above manually)") }
 }
 

@@ -14,6 +14,24 @@ param([switch]$NoFirstRun, [string]$ReportTo = '', [switch]$NoPause)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
+# --- 인자 안전 조인 (PS 5.1 대응) ---
+# Start-Process -ArgumentList / 예약 작업 / 바로가기는 문자열로 넘긴다.
+# 경로에 공백·따옴표·$ 가 있어도 인자로 분리되지 않도록 Windows 커맨드라인 규칙으로 이스케이프한다.
+# CANONICAL HELPER v1: 아래 2개 함수는 6개 스크립트 사본이 모두 동일해야 함. 변경 시 전부 갱신 + tests\verify-helper-parity.ps1 검증.
+function ConvertTo-CliArg {
+  param([AllowNull()][string]$Value)
+  if ($null -eq $Value) { return '""' }
+  $v = [string]$Value
+  $v = [regex]::Replace($v, '(\\*)"', '$1$1\"')
+  $v = [regex]::Replace($v, '(\\+)$', '$1$1')
+  if ($v -match '[\s"]') { return '"' + $v + '"' }
+  return $v
+}
+function Join-CliArgs {
+  param([string[]]$Arguments)
+  return (@($Arguments | ForEach-Object { ConvertTo-CliArg $_ }) -join ' ')
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $sm = Join-Path $root 'Simple maintenance'
 $wrapper = Join-Path $root 'run-maintenance.ps1'
@@ -21,14 +39,15 @@ $maint = Join-Path $sm 'maintenance.ps1'
 $runNow = Join-Path $root 'run-now.ps1'
 $uninstall = Join-Path $root 'uninstall.ps1'
 $feedback = Join-Path $root 'feedback.ps1'
+$launcher = Join-Path $root 'install.cmd'
 $taskName = 'OpenCode-Maintenance'
 
 # --- 버전 (2026-11-14) --- VERSION 파일(1줄: 버전, 2줄: 날짜)이 기준.
 function Get-KitVersionText {
   try {
     $vf = Join-Path $root 'VERSION'
-    if (Test-Path $vf) {
-      $vlines = @(Get-Content -Path $vf -Encoding UTF8 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if (Test-Path -LiteralPath $vf) {
+      $vlines = @(Get-Content -LiteralPath $vf -Encoding UTF8 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
       if ($vlines.Count -ge 1) {
         $v = ([string]$vlines[0]).Trim()
         if ($vlines.Count -ge 2) { return ("v$v (" + ([string]$vlines[1]).Trim() + ")") }
@@ -97,11 +116,12 @@ if (-not (Test-Admin)) {
   Write-Host (L '관리자 권한이 필요합니다. 확인 창에서 "예"를 누르세요...' 'Administrator rights are required. Click "Yes" in the prompt...')
   # 사용자 바탕화면 경로를 미리 잡아 관리자 권한으로 넘긴다(관리자 계정이 다를 때 대비).
   $userDesktop = [Environment]::GetFolderPath('Desktop')
-  $argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ReportTo "{1}"' -f $PSCommandPath, $userDesktop
-  if ($NoFirstRun) { $argLine += ' -NoFirstRun' }
-  if ($NoPause) { $argLine += ' -NoPause' }
+  # $PSCommandPath(자기 자신)만 사용하고, 인자는 배열로 분리한 뒤 안전하게 조인한다.
+  $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-ReportTo', $userDesktop)
+  if ($NoFirstRun) { $argList += '-NoFirstRun' }
+  if ($NoPause) { $argList += '-NoPause' }
   try {
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine | Out-Null
+    Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Verb RunAs -ArgumentList (Join-CliArgs $argList) | Out-Null
   } catch {
     Write-Host (L '설치를 취소했습니다(관리자 권한 거부).' 'Installation cancelled (admin rights denied).')
   }
@@ -118,32 +138,44 @@ Write-Host '=========================================='
 Write-Host ''
 
 # --- 2. 파일 확인 ---
-foreach ($f in @($wrapper, $maint, $runNow, $uninstall, $feedback)) {
-  if (-not (Test-Path $f)) {
+# .cmd 런처도 배포 패키지의 일부이므로 존재와 기본 내용을 함께 확인한다.
+# 내용 무결성은 릴리즈 ZIP 전체의 .sha256 으로 이미 검증되지만, 패키징 누락은 여기서 막는다.
+foreach ($f in @($launcher, $wrapper, $maint, $runNow, $uninstall, $feedback)) {
+  if (-not (Test-Path -LiteralPath $f)) {
     Write-Host (L "오류: 필요한 파일이 없습니다 → $f" "Error: required file missing → $f")
     Write-Host (L '압축을 풀지 않았거나 파일이 이동되었습니다. 폴더째로 다시 받아 실행하세요.' 'The ZIP was not extracted or files were moved. Re-download the whole folder and run it.')
     Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
     exit 1
   }
 }
+$launcherText = [IO.File]::ReadAllText($launcher)
+if ($launcherText -notmatch '(?i)install\.ps1') {
+  Write-Host (L "오류: 런처 내용이 올바르지 않습니다 → $launcher" "Error: invalid launcher content → $launcher")
+  Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
+  exit 1
+}
 Write-Step (L '파일 확인 완료' 'Files verified')
 
 # --- 3. 스크립트 문법 검사 (깨진 파일로 예약 작업을 걸지 않기 위해) ---
-foreach ($f in @($maint, $wrapper, $runNow, $uninstall, $feedback, (Join-Path $root 'update-common.ps1'), (Join-Path $root '업데이트.ps1'), (Join-Path $root 'update.ps1'))) {
+# 지정된 파일만이 아니라 dot-source/하위 호출 대상까지 포함해 설치 폴더 전체를 재귀 검사한다.
+$allScripts = @(Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+  Where-Object { $_.Extension -in '.ps1', '.psm1' })
+if ($allScripts.Count -eq 0) { $allScripts = @(Get-Item -LiteralPath $maint) }
+foreach ($f in $allScripts) {
   $tok = $null; $err = $null
-  $null = [System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$tok, [ref]$err)
+  $null = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tok, [ref]$err)
   if ($err -and $err.Count -gt 0) {
-    Write-Host (L "오류: 스크립트가 손상되었습니다 → $f" "Error: script is corrupted → $f")
+    Write-Host (L "오류: 스크립트가 손상되었습니다 → $($f.FullName)" "Error: script is corrupted → $($f.FullName)")
     Write-Host ('  ' + $err[0].Message)
     Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
     exit 1
   }
 }
-Write-Step (L '스크립트 검사 완료' 'Scripts checked')
+Write-Step (L "스크립트 검사 완료 ($($allScripts.Count)개)" "Scripts checked ($($allScripts.Count))")
 
 # --- 4. 설정 파일 (없을 때만 기본값 생성) ---
 $cfgPath = Join-Path $sm 'config.json'
-if (-not (Test-Path $cfgPath)) {
+if (-not (Test-Path -LiteralPath $cfgPath)) {
   $cfg = [ordered]@{
     setupComplete            = $true
     schedule                 = $false
@@ -179,7 +211,7 @@ if (-not (Test-Path $cfgPath)) {
     adDnsEnabled             = $false
     adDnsServers             = @('94.140.14.14', '94.140.15.15')
   }
-  $cfg | ConvertTo-Json -Depth 4 | Set-Content -Path $cfgPath -Encoding UTF8
+  $cfg | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $cfgPath -Encoding UTF8
   Write-Step (L '설정 파일 생성' 'Config file created')
 } else {
   Write-Step (L '설정 파일 유지(기존 설정 사용)' 'Config file kept (existing settings used)')
@@ -187,7 +219,7 @@ if (-not (Test-Path $cfgPath)) {
 
 # wrapper(주기 게이트)가 읽는 최상위 config.json — 없으면 wrapper 가 즉시 exit 1 로 죽는다.
 $runnerCfgPath = Join-Path $root 'config.json'
-if (-not (Test-Path $runnerCfgPath)) {
+if (-not (Test-Path -LiteralPath $runnerCfgPath)) {
   $runnerCfg = [ordered]@{
     diskThresholdGB       = 10
     maintenanceCadenceHours = 144
@@ -200,14 +232,14 @@ if (-not (Test-Path $runnerCfgPath)) {
     schedule              = $false
     idleConsoleMinutes    = 5
   }
-  $runnerCfg | ConvertTo-Json -Depth 4 | Set-Content -Path $runnerCfgPath -Encoding UTF8
+  $runnerCfg | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $runnerCfgPath -Encoding UTF8
   Write-Step (L '실행 설정 생성 (config.json)' 'Runner config created (config.json)')
 }
 
 # --- 5. 예약 작업 등록 (매일 04:00 + 로그온 시, 실제 실행 여부는 6일 주기 게이트가 판단) ---
 try {
-  $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
-    -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $wrapper)
+  $taskArgText = Join-CliArgs @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $wrapper)
+  $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument $taskArgText
   $triggers = @(
     (New-ScheduledTaskTrigger -Daily -At '04:00'),
     (New-ScheduledTaskTrigger -AtLogOn -User ("{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME))
@@ -244,7 +276,7 @@ try {
     $lnkPath = Join-Path $desktop $d.Name
     $lnk = $ws.CreateShortcut($lnkPath)
     $lnk.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $lnk.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $d.Script
+    $lnk.Arguments = Join-CliArgs @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $d.Script)
     $lnk.WorkingDirectory = $root
     $lnk.IconLocation = "$env:SystemRoot\System32\imageres.dll,68"
     $lnk.Description = $d.Desc
@@ -263,8 +295,8 @@ if (-not $NoFirstRun) {
   Write-Host ''
   & $wrapper -Force -ReportTo $ReportTo
   $resPath = Join-Path $sm 'last-result.json'
-  if (Test-Path $resPath) {
-    $r = Get-Content $resPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  if (Test-Path -LiteralPath $resPath) {
+    $r = Get-Content -LiteralPath $resPath -Raw -Encoding UTF8 | ConvertFrom-Json
     Write-Host ''
     Write-Host (L '--------------- 결과 ---------------' '--------------- Result ---------------')
     Write-Host $(if ($r.status -eq 'PASS') { (L '결과: 정상 — 문제를 찾지 못했습니다.' 'Result: OK — no issues found.') } else { (L '결과: 확인이 필요한 항목이 있습니다.' 'Result: some items need your attention.') })
@@ -272,7 +304,7 @@ if (-not $NoFirstRun) {
     Write-Host ($fixLine -f @($r.autoFixes).Count, @($r.recommendations).Count)
     $latest = $null
     foreach ($dir in @($ReportTo, ([Environment]::GetFolderPath('Desktop')))) {
-      if ([string]::IsNullOrWhiteSpace($dir) -or -not (Test-Path $dir)) { continue }
+      if ([string]::IsNullOrWhiteSpace($dir) -or -not (Test-Path -LiteralPath $dir)) { continue }
       # 2026-11-17 (v1.3.0): 4개 이상이면 '자동점검결과' 폴더로 옮겨지므로 그 폴더도 본다.
       foreach ($scanDir in @($dir, (Join-Path $dir '자동점검결과'))) {
         if (-not (Test-Path -LiteralPath $scanDir -PathType Container)) { continue }
@@ -284,7 +316,7 @@ if (-not $NoFirstRun) {
     }
     if (-not $latest) {
       $copy = Join-Path $sm 'logs\last-report.txt'
-      if (Test-Path $copy) { $latest = Get-Item $copy }
+      if (Test-Path -LiteralPath $copy) { $latest = Get-Item -LiteralPath $copy }
     }
     if ($latest) {
       Write-Host (L "자세한 결과 파일: $($latest.FullName)" "Detailed result file: $($latest.FullName)")

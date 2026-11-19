@@ -50,9 +50,26 @@ $script:runStartTime = Get-Date    # 전체 벽시계 시간 (단계 합계와 �
 try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch { }
 
 # --- 경로 설정 ---
-$scriptRoot = if ($ExeDir -and (Test-Path $ExeDir)) { $ExeDir }
+$scriptRoot = if ($ExeDir -and (Test-Path -LiteralPath $ExeDir)) { $ExeDir }
   elseif ($PSScriptRoot) { $PSScriptRoot }
   else { try { Split-Path -Parent ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) } catch { Split-Path -Parent $MyInvocation.MyCommand.Definition } }
+# --- 인자 안전 조인 (PS 5.1 대응) ---
+# Start-Process -ArgumentList 로 넘길 때 경로/인자의 공백·따옴표·$ 로 인한 분리·재해석을 막는다.
+# CANONICAL HELPER v1: 아래 2개 함수는 6개 스크립트 사본이 모두 동일해야 함. 변경 시 전부 갱신 + tests\verify-helper-parity.ps1 검증.
+function ConvertTo-CliArg {
+  param([AllowNull()][string]$Value)
+  if ($null -eq $Value) { return '""' }
+  $v = [string]$Value
+  $v = [regex]::Replace($v, '(\\*)"', '$1$1\"')
+  $v = [regex]::Replace($v, '(\\+)$', '$1$1')
+  if ($v -match '[\s"]') { return '"' + $v + '"' }
+  return $v
+}
+function Join-CliArgs {
+  param([string[]]$Arguments)
+  return (@($Arguments | ForEach-Object { ConvertTo-CliArg $_ }) -join ' ')
+}
+
 $configPath = Join-Path $scriptRoot 'config.json'                          # 외부 설정 파일 (선택)
 $lockFilePath = Join-Path $scriptRoot 'idle_maintenance.lock'              # 중복 실행 방지 잠금 파일
 $logDir = Join-Path $scriptRoot 'logs'                                       # 실행파일 경로의 logs 폴더
@@ -87,8 +104,8 @@ try {
   if ($parentRoot) { $versionCandidates += (Join-Path $parentRoot 'VERSION') }
   $versionCandidates += (Join-Path $scriptRoot 'VERSION')
   foreach ($vf in $versionCandidates) {
-    if ($vf -and (Test-Path $vf)) {
-      $vlines = @(Get-Content -Path $vf -Encoding UTF8 -ErrorAction Stop | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($vf -and (Test-Path -LiteralPath $vf)) {
+      $vlines = @(Get-Content -LiteralPath $vf -Encoding UTF8 -ErrorAction Stop | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
       if ($vlines.Count -ge 1) { $kitVersion = ([string]$vlines[0]).Trim() }
       if ($vlines.Count -ge 2) { $kitVersionDate = ([string]$vlines[1]).Trim() }
       break
@@ -209,8 +226,8 @@ $defaults = @{
 
 # --- 외부 config.json 설정 불러오기 (있으면 내장 기본값보다 우선) ---
 $config = $null
-if (Test-Path $configPath) {
-  try { $config = Get-Content $configPath -Raw | ConvertFrom-Json } catch { Write-Output "Config: WARN - Failed to load config: $_" }
+if (Test-Path -LiteralPath $configPath) {
+  try { $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Write-Output "Config: WARN - Failed to load config: $_" }
 }
 
 # config.json 스키마 검증 (알 수 없는 키 경고)
@@ -268,8 +285,31 @@ function Get-ConfigProp($obj, $name) {
 # 설정값 조회 헬퍼: 외부 설정 우선, 없으면 내장 기본값 반환
 function Get-Cfg([string]$key) {
   $val = Get-ConfigProp $config $key
-  if ($null -ne $val) { return $val }
-  return $defaults[$key]
+  if ($null -eq $val) { return $defaults[$key] }
+  # config.json 에 잘못된 타입이 들어오면 관리자 권한 작업에 그대로 쓰지 않고 기본값으로 되돌린다.
+  $def = $null
+  if ($defaults.ContainsKey($key)) { $def = $defaults[$key] }
+  if ($null -ne $def) {
+    if (($def -is [bool]) -and ($val -isnot [bool])) { return $def }
+    if (($def -is [int]) -and ($val -isnot [int]) -and ($val -isnot [long])) { return $def }
+    if (($def -is [string]) -and ($val -isnot [string])) { return $def }
+    # [string] 도 IEnumerable 이므로 문자열은 배열로 인정하지 않는다.
+    if (($def -is [array]) -and -not (($val -is [System.Collections.IEnumerable]) -and -not ($val -is [string]))) { return $def }
+  }
+  return $val
+}
+
+# IPv4 리터럴 검증: 999.999.999.999 같은 형식만 맞는 값도 거른다.
+function Test-IPv4Literal {
+  param([string]$Value)
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+  if ($Value -notmatch '^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$') { return $false }
+  foreach ($oct in @($Matches[1], $Matches[2], $Matches[3], $Matches[4])) {
+    $n = 0
+    if (-not [int]::TryParse($oct, [ref]$n)) { return $false }
+    if ($n -lt 0 -or $n -gt 255) { return $false }
+  }
+  return $true
 }
 
 # ============================================================
@@ -444,11 +484,11 @@ function Invoke-DeleteReview {
   $deletedFile = ''
   if ($decision -eq 'yes') {
     try {
-      if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+      if (-not (Test-Path -LiteralPath $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
       $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
       $deletedFile = Join-Path $logDir ("deleted-$stamp.txt")
       $dup = 2
-      while (Test-Path $deletedFile) {
+      while (Test-Path -LiteralPath $deletedFile) {
         $deletedFile = Join-Path $logDir ("deleted-$stamp-$dup.txt")
         $dup++
       }
@@ -734,7 +774,7 @@ function Remove-OldResultFiles {
 # 오래된 로그 파일 삭제 (지정 일수보다 오래된 maintain-*.log)
 function Clear-OldLogs {
   param([int]$DaysToKeep = 7, [string]$Dir = $logDir)
-  if (-not (Test-Path $Dir)) { return }
+  if (-not (Test-Path -LiteralPath $Dir)) { return }
   $cutoff = (Get-Date).AddDays(-$DaysToKeep)
   Get-ChildItem -Path $Dir -File -Filter 'maintain-*.log' | Where-Object { $_.LastWriteTime -lt $cutoff } | Remove-Item -Force -ErrorAction SilentlyContinue
   # 삭제 기록(deleted-*.txt)은 복구에 필요하므로 로그 보관기간과 무관하게 최소 30일은 남긴다(2026-11-13).
@@ -753,9 +793,9 @@ function Clear-OldLogs {
 #   .last_run 우선, 없으면 오늘 실행 중인 로그($logPath)를 제외한 가장 최근 로그를 사용.
 #   (기존 구현은 자기 자신이 방금 만든 로그를 "마지막 실행"으로 읽어 scheduled 실행이 항상 SKIP 되었음)
 function Get-LastRunHours {
-  if (Test-Path $lastRunFile) {
+  if (Test-Path -LiteralPath $lastRunFile) {
     try {
-      $stamp = (Get-Content -Path $lastRunFile -Raw -ErrorAction Stop).Trim()
+      $stamp = (Get-Content -LiteralPath $lastRunFile -Raw -ErrorAction Stop).Trim()
       if ($stamp) { return ((Get-Date) - [datetime]::Parse($stamp)).TotalHours }
     } catch { }
   }
@@ -768,7 +808,7 @@ function Get-LastRunHours {
 
 # 정상 완료 시 마지막 실행 시각 기록
 function Set-LastRunStamp {
-  try { (Get-Date).ToString('o') | Set-Content -Path $lastRunFile -Encoding UTF8 -NoNewline -ErrorAction Stop } catch { }
+  try { (Get-Date).ToString('o') | Set-Content -LiteralPath $lastRunFile -Encoding UTF8 -NoNewline -ErrorAction Stop } catch { }
 }
 
 # --- 범용 상태 파일(JSON) 읽기/쓰기 ---
@@ -776,27 +816,27 @@ function Set-LastRunStamp {
 function Get-JsonState {
   param([string]$Path)
   $state = @{}
-  if (-not $Path -or -not (Test-Path $Path)) { return $state }
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $state }
   try {
-    $obj = Get-Content -Path $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    $obj = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($prop in $obj.PSObject.Properties) { $state[$prop.Name] = $prop.Value }
   } catch { }
   return $state
 }
 function Save-JsonState {
   param([string]$Path, $State)
-  try { $State | ConvertTo-Json -Depth 6 | Set-Content -Path $Path -Encoding UTF8 -ErrorAction Stop } catch { }
+  try { $State | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction Stop } catch { }
 }
 
 # 단일 시각 타임스탬프(.last_heavy 등). 없거나 깨졌으면 $null
 function Get-StampDate {
   param([string]$Path)
-  if (-not (Test-Path $Path)) { return $null }
-  try { return [datetime]::Parse((Get-Content -Path $Path -Raw -Encoding UTF8).Trim()) } catch { return $null }
+  if (-not (Test-Path -LiteralPath $Path)) { return $null }
+  try { return [datetime]::Parse((Get-Content -LiteralPath $Path -Raw -Encoding UTF8).Trim()) } catch { return $null }
 }
 function Set-StampDate {
   param([string]$Path)
-  try { (Get-Date).ToString('o') | Set-Content -Path $Path -Encoding UTF8 -NoNewline -ErrorAction Stop } catch { }
+  try { (Get-Date).ToString('o') | Set-Content -LiteralPath $Path -Encoding UTF8 -NoNewline -ErrorAction Stop } catch { }
 }
 
 # 마지막 실행 후 Days일이 지났는가? (기록 없음 = 실행, Days<=0 = 항상 실행)
@@ -1043,7 +1083,7 @@ function Write-TestHeader {
 # 안전 종료: 잠금파일/Mutex 정리 후 메시지 출력 후 종료
 function Exit-Maintenance {
   param([int]$ExitCode = 0, [string]$Message = '')
-  if ($script:lockCreated) { Remove-Item $lockFilePath -Force -ErrorAction SilentlyContinue }
+  if ($script:lockCreated) { Remove-Item -LiteralPath $lockFilePath -Force -ErrorAction SilentlyContinue }
   if ($script:mutex) { try { $script:mutex.ReleaseMutex(); $script:mutex.Dispose() } catch { } }
   if ($Message) { Write-Output $Message }
   exit $ExitCode
@@ -1061,7 +1101,7 @@ trap {
   try {
     if ($errPos) { try { Add-Content -Path $logPath -Value $errPos -Encoding UTF8 } catch { } }
     $failDir = if (-not [string]::IsNullOrWhiteSpace($ReportTo)) { $ReportTo } else { [Environment]::GetFolderPath('Desktop') }
-    if (-not [string]::IsNullOrWhiteSpace($failDir) -and (Test-Path $failDir)) {
+    if (-not [string]::IsNullOrWhiteSpace($failDir) -and (Test-Path -LiteralPath $failDir)) {
       $failFile = Join-Path $failDir ($script:resultFailPrefix + (Get-Date -Format 'yyyyMMdd_HHmm') + ".txt")
       $failLines = @()
       $failLines += L '================ 자동 유지보수 — 점검 중단 ================' '================ Auto Maintenance - Check Aborted ================'
@@ -1076,7 +1116,7 @@ trap {
       $failLines += ('  ' + $logPath)
       $failLines += ''
       $failLines += L '※ 파일 삭제·설정 변경은 실행되지 않았습니다(중단됨).' 'NOTE: No files were deleted and no settings were changed (aborted).'
-      $failLines | Out-File -FilePath $failFile -Encoding UTF8
+      $failLines | Out-File -LiteralPath $failFile -Encoding UTF8
       Write-Output (L "점검 중단 리포트: $failFile" "Aborted-check report: $failFile")
     }
   } catch {
@@ -1193,14 +1233,14 @@ function Get-LatestLog {
 
 # winget 소스 불안정 시 강제 리셋 시도, 실패하면 winget 비활성화
 function Update-ConfigWingetDisabled {
-  if (-not (Test-Path $configPath)) { return }
+  if (-not (Test-Path -LiteralPath $configPath)) { return }
   try {
-    $cfg = Get-Content -Path $configPath -Raw | ConvertFrom-Json
+    $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if (-not $cfg.winget -or $cfg.winget.enabled -eq $false) { return }
     $null = winget source reset --force 2>&1
     if ($LASTEXITCODE -eq 0) { return }
     $cfg.winget.enabled = $false
-    $cfg | ConvertTo-Json -Depth 5 | Out-File -FilePath $configPath -Encoding UTF8 -Force
+    $cfg | ConvertTo-Json -Depth 5 | Out-File -LiteralPath $configPath -Encoding UTF8 -Force
   } catch { Write-LogEntry "Winget: FAIL - Reset failed: $_" }
 }
 
@@ -1219,7 +1259,9 @@ function Ensure-PSWindowsUpdateModule {
       if ($resp -ne 'Y') { return }
       $null = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
       Install-PackageProvider -Name NuGet -Force -ForceBootstrap -ErrorAction SilentlyContinue | Out-Null
-      Install-Module -Name PSWindowsUpdate -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck -ErrorAction SilentlyContinue
+      # 게시자 서명 검증을 유지한다(외부 PSGallery 모듈을 -SkipPublisherCheck 로 설치하지 않는다).
+      # 실패하면 아래 catch 가 로그에 남기고, 기능은 건너뛴다(필수 기능 아님).
+      Install-Module -Name PSWindowsUpdate -Force -Scope CurrentUser -AllowClobber -ErrorAction SilentlyContinue
     } catch { Write-LogEntry "PSWindowsUpdate: FAIL - Install failed: $_" }
   }
 }
@@ -1243,18 +1285,22 @@ function Hide-ProblematicDriverUpdates {
 #   남겨두면 위험하다.
 
 # === 로그 디렉토리 생성 (없을 경우) ===
-if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
+if (-not (Test-Path -LiteralPath $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
 
 # === 관리자 권한 확인 및 자동 상승 (Set-NetIPInterface 등에 필요) ===
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
   Write-Host 'ADMIN: WARN - Not running as administrator. Requesting elevation...'
-  $myPath = [Environment]::GetCommandLineArgs()[0]
-  if ($myPath -match '\.ps1$') {
+  # [Environment]::GetCommandLineArgs()[0] 은 외부에서 조작 가능한 프로세스 커맨드라인이다.
+  # 스크립트 자신의 경로($PSCommandPath)만 신뢰하고, 인자는 배열로 분리해 안전하게 조인한다.
+  $selfPath = if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) { $PSCommandPath } else { $MyInvocation.MyCommand.Definition }
+  if ($selfPath -match '\.ps1$') {
     Write-Host 'ADMIN: INFO - If elevation fails, run "Set-ExecutionPolicy RemoteSigned -Scope CurrentUser" first.'
-    Start-Process -FilePath 'powershell' -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy RemoteSigned -File `"$myPath`" -Mode $Mode"
+    $elevArgs = Join-CliArgs @('-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', $selfPath, '-Mode', $Mode)
+    Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Verb RunAs -ArgumentList $elevArgs
   } else {
-    Start-Process -FilePath $myPath -Verb RunAs -ArgumentList "-Mode $Mode"
+    # 컴파일된 EXE 로 감싼 배포 형식 대비: 자기 실행 파일 경로만 넘긴다.
+    Start-Process -FilePath $selfPath -Verb RunAs -ArgumentList (Join-CliArgs @('-Mode', $Mode))
   }
   exit 0
 }
@@ -1387,8 +1433,8 @@ if ($Mode -eq 'scheduled') {
   Clear-OldLogs -DaysToKeep (Get-Cfg 'logsRetentionDays')
 
   # 최초 실행 시 config.json 백업
-  if ((Test-Path $configPath) -and -not (Test-Path "$configPath.bak")) {
-    Copy-Item -Path $configPath -Destination "$configPath.bak" -Force
+  if ((Test-Path -LiteralPath $configPath) -and -not (Test-Path -LiteralPath "$configPath.bak")) {
+    Copy-Item -LiteralPath $configPath -Destination "$configPath.bak" -Force
   }
 
   $cadenceHours = [double](Get-Cfg 'maintenanceCadenceHours')
@@ -1413,14 +1459,14 @@ if ($Mode -eq 'idle') {
   Clear-OldLogs -DaysToKeep (Get-Cfg 'logsRetentionDays')
 
   # 최초 실행 시 config.json 백업
-  if ((Test-Path $configPath) -and -not (Test-Path "$configPath.bak")) {
-    Copy-Item -Path $configPath -Destination "$configPath.bak" -Force
+  if ((Test-Path -LiteralPath $configPath) -and -not (Test-Path -LiteralPath "$configPath.bak")) {
+    Copy-Item -LiteralPath $configPath -Destination "$configPath.bak" -Force
   }
 
   # 잠금파일 확인 (PID 기록 + 프로세스 생존 확인)
-  if (Test-Path $lockFilePath) {
+  if (Test-Path -LiteralPath $lockFilePath) {
     try {
-      $oldPid = (Get-Content $lockFilePath -ErrorAction Stop) -as [int]
+      $oldPid = (Get-Content -LiteralPath $lockFilePath -ErrorAction Stop) -as [int]
       $procAlive = $false
       if ($oldPid -and $oldPid -gt 0) { $procAlive = (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) -ne $null }
       if ($procAlive) {
@@ -1428,7 +1474,7 @@ if ($Mode -eq 'idle') {
         Exit-Maintenance -Message 'Maintenance already running. Skipping.'
       }
       Write-Output "Removing stale lock file (previous PID ${oldPid} no longer running)"
-      Remove-Item $lockFilePath -Force -ErrorAction Stop
+      Remove-Item -LiteralPath $lockFilePath -Force -ErrorAction Stop
     } catch {
       Write-LogEntry 'LOCK: SKIP - Could not check lock file'
       Exit-Maintenance -Message 'Could not check lock file. Skipping.'
@@ -1495,8 +1541,8 @@ if ($Mode -eq 'idle') {
 
       if ($cpuNow -lt 30) {
         $cpuLowSince = $null
-        if (Test-Path $cpuLowTracker) {
-          $content = (Get-Content $cpuLowTracker -Raw -ErrorAction SilentlyContinue)
+        if (Test-Path -LiteralPath $cpuLowTracker) {
+          $content = (Get-Content -LiteralPath $cpuLowTracker -Raw -ErrorAction SilentlyContinue)
           if ($content) { $cpuLowSince = $content.Trim() -as [DateTime] }
         }
         if (-not $cpuLowSince) {
@@ -1509,13 +1555,13 @@ if ($Mode -eq 'idle') {
             # 20분 조건 충족 → 사용자 프롬프트
             $promptFlag = Join-Path $scriptRoot '.cpu_prompt_declined'
             $shouldPrompt = $true
-            if (Test-Path $promptFlag) {
-              $declinedSince = (Get-Item $promptFlag).LastWriteTime
+            if (Test-Path -LiteralPath $promptFlag) {
+              $declinedSince = (Get-Item -LiteralPath $promptFlag).LastWriteTime
               if (((Get-Date) - $declinedSince).TotalHours -lt 5) {
                 Write-LogEntry "CPU: User declined within 5h, skipping prompt"
                 $shouldPrompt = $false
               } else {
-                Remove-Item $promptFlag -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $promptFlag -Force -ErrorAction SilentlyContinue
               }
             }
             if ($shouldPrompt) {
@@ -1542,7 +1588,7 @@ if ($Mode -eq 'idle') {
                 } else {
                   Write-LogEntry 'CPU: User declined, flagging 5h cooldown'
                   New-Item -Path $promptFlag -ItemType File -Force | Out-Null
-                  Remove-Item $cpuLowTracker -Force -ErrorAction SilentlyContinue
+                  Remove-Item -LiteralPath $cpuLowTracker -Force -ErrorAction SilentlyContinue
                 }
               } catch {
                 Write-LogEntry "CPU: Prompt error - $_"
@@ -1551,8 +1597,8 @@ if ($Mode -eq 'idle') {
           }
         }
       } else {
-        if (Test-Path $cpuLowTracker) {
-          Remove-Item $cpuLowTracker -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $cpuLowTracker) {
+          Remove-Item -LiteralPath $cpuLowTracker -Force -ErrorAction SilentlyContinue
           Write-LogEntry "CPU: Usage spiked to ${cpuNow}%, tracking reset"
         }
       }
@@ -1848,7 +1894,7 @@ try {
             continue
           }
           if ([IO.Path]::GetPathRoot($chk.Path) -ine $driveRoot) { continue }   # 그 드라이브가 부족할 때 처리
-          if (-not (Test-Path $chk.Path)) { continue }
+          if (-not (Test-Path -LiteralPath $chk.Path)) { continue }
           try {
             $all = @(Get-FilesNoReparse -Root $chk.Path |
                        Where-Object { $_.LastWriteTime -lt $modCutoff })
@@ -2002,8 +2048,8 @@ foreach ($svcName in $servicesToCheck) {
 $winsxsFlag = Join-Path $scriptRoot '.last_winsxs_clean'
 $heavyCheckDays = [int](Get-Cfg 'heavyCheckDays')
 $shouldCleanWinSxS = $false; $lastWinSxs = $null
-if (Test-Path $winsxsFlag) {
-  $lastWinSxs = (Get-Item $winsxsFlag).LastWriteTime
+if (Test-Path -LiteralPath $winsxsFlag) {
+  $lastWinSxs = (Get-Item -LiteralPath $winsxsFlag).LastWriteTime
   if (((Get-Date) - $lastWinSxs).TotalDays -ge $heavyCheckDays) { $shouldCleanWinSxS = $true }
 } else {
   $shouldCleanWinSxS = $true
@@ -2088,9 +2134,9 @@ try {
   # 이전 실행 값을 저장해 두고 "증가분"이 있을 때만 WARN 을 올린다.
   $dhStatePath = if ($scriptRoot) { Join-Path $scriptRoot 'diskhealth-state.json' } else { $null }
   $dhState = @{}
-  if ($dhStatePath -and (Test-Path $dhStatePath)) {
+  if ($dhStatePath -and (Test-Path -LiteralPath $dhStatePath)) {
     try {
-      $dhLoaded = Get-Content $dhStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+      $dhLoaded = Get-Content -LiteralPath $dhStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
       foreach ($prop in $dhLoaded.PSObject.Properties) { $dhState[$prop.Name] = $prop.Value }
     } catch { $dhState = @{} }
   }
@@ -2194,7 +2240,7 @@ try {
   }
   if ($dhStatePath -and $dhNewState.Count -gt 0) {
     try {
-      ($dhNewState | ConvertTo-Json -Depth 6) | Set-Content -Path $dhStatePath -Encoding UTF8
+      ($dhNewState | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $dhStatePath -Encoding UTF8
       Write-LogEntry "DiskHealth: SMART 기준값 저장 ($dhStatePath)"
     } catch {
       Write-LogEntry "DiskHealth: WARN - SMART 기준값 저장 실패: $($_.Exception.Message)"
@@ -2223,7 +2269,7 @@ try {
     Write-LogEntry "SysFix: PASS - 크래시 덤프 형식 정상 (CrashDumpEnabled=$dumpVal)"
   }
   $miniDir = if ($cc.MinidumpDir) { $cc.MinidumpDir } else { "$env:windir\Minidump" }
-  if (-not (Test-Path $miniDir)) {
+  if (-not (Test-Path -LiteralPath $miniDir)) {
     New-Item -Path $miniDir -ItemType Directory -Force | Out-Null
     Write-LogEntry "SysFix: CHANGE - 미니덤프 폴더 생성 ($miniDir)"
     Add-AutoFix "미니덤프 폴더 생성 ($miniDir)"
@@ -2554,7 +2600,7 @@ try {
   $certIssues = @()
   $certTotal = 0
   foreach ($storePath in @('Cert:\LocalMachine\My', 'Cert:\LocalMachine\WebHosting')) {
-    if (-not (Test-Path $storePath)) { continue }
+    if (-not (Test-Path -LiteralPath $storePath)) { continue }
     foreach ($cert in (Get-ChildItem $storePath -ErrorAction SilentlyContinue)) {
       $certTotal++
       $daysLeft = [int][math]::Floor(($cert.NotAfter - $certNow).TotalDays)
@@ -2765,7 +2811,7 @@ Write-ProgressBar "DriverStore"
 Write-TestHeader "[DriverStore] 드라이버 저장소(FileRepository) 용량을 분석합니다."
 try {
   $driverStorePath = "$env:windir\System32\DriverStore\FileRepository"
-  if (Test-Path $driverStorePath) {
+  if (Test-Path -LiteralPath $driverStorePath) {
     $oemDirs = Get-ChildItem -Path $driverStorePath -Directory -ErrorAction SilentlyContinue
     $oemCount = @($oemDirs).Count
     $totalSizeGB = [math]::Round(((Get-ChildItem -Path $driverStorePath -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum) / 1GB, 2)
@@ -2799,7 +2845,7 @@ try {
   # 삭제 전에 "어느 파일을 지울지" 모아서 한 번에 확인한다(2026-11-12).
   $cacheCands = @()
   foreach ($bp in $browserPaths) {
-    if (Test-Path $bp) {
+    if (Test-Path -LiteralPath $bp) {
       try {
         $oldFiles = @(Get-ChildItem -Path $bp -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $cacheCutoff })
         if ($oldFiles.Count -gt 0) {
@@ -2836,8 +2882,8 @@ Write-ProgressBar "HostFile"
 Write-TestHeader "[HostFile] HOSTS 파일에 비정상적인 엔트리가 있는지 확인합니다."
 try {
   $hostsPath = "$env:windir\System32\drivers\etc\hosts"
-  if (Test-Path $hostsPath) {
-    $hostsContent = Get-Content -Path $hostsPath -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $hostsPath) {
+    $hostsContent = Get-Content -LiteralPath $hostsPath -ErrorAction SilentlyContinue
     $suspicious = @()
     foreach ($line in $hostsContent) {
       $trimmed = $line.Trim()
@@ -2906,7 +2952,7 @@ try {
   try { $isSystemCtx = ([Security.Principal.WindowsIdentity]::GetCurrent().Name -match '\\SYSTEM$') } catch { }
 
   if (-not (Get-Cfg 'adQuiet')) {
-    if (Test-Path $adStatePath) {
+    if (Test-Path -LiteralPath $adStatePath) {
       $restored = 0
       foreach ($sv in @($adState['values'])) {
         if ($null -eq $sv) { continue }
@@ -2923,7 +2969,7 @@ try {
           $restored++
         } catch { }
       }
-      Remove-Item $adStatePath -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $adStatePath -Force -ErrorAction SilentlyContinue
       if ($restored -gt 0) { Add-AutoFix "광고/추천 설정 원래대로 복원 ($restored 항목)" }
       Write-LogEntry "AdQuiet: PASS - adQuiet=false 이므로 이전에 바꾼 설정을 복원했습니다 ($restored 항목)"
       $script:adStatus.quiet = 'restored'
@@ -2935,7 +2981,7 @@ try {
     Write-LogEntry 'AdQuiet: SKIP - SYSTEM 계정에서 실행 중이라 사용자 설정(HKCU)을 건드리지 않습니다.'
     $script:adStatus.quiet = 'skip(system)'
   } else {
-    if (-not (Test-Path $script:adBackupDir)) { $null = New-Item -ItemType Directory -Path $script:adBackupDir -Force }
+    if (-not (Test-Path -LiteralPath $script:adBackupDir)) { $null = New-Item -ItemType Directory -Path $script:adBackupDir -Force }
     $savedValues = @()
     $savedKeys = @{}
     foreach ($sv in @($adState['values'])) {
@@ -2979,7 +3025,7 @@ try {
     $changes = @()
     foreach ($t in $targets) {
       try {
-        if (-not (Test-Path $t.Path)) { $null = New-Item -Path $t.Path -Force -ErrorAction Stop }
+        if (-not (Test-Path -LiteralPath $t.Path)) { $null = New-Item -Path $t.Path -Force -ErrorAction Stop }
         $prop = $null
         try { $prop = (Get-ItemProperty -Path $t.Path -ErrorAction Stop).PSObject.Properties[$t.Name] } catch { }
         $exists = ($null -ne $prop)
@@ -3105,13 +3151,13 @@ $trackerDomains = @(
   'c.statcounter.com'
 )
 try {
-  if (-not (Test-Path $script:adBackupDir)) { $null = New-Item -ItemType Directory -Path $script:adBackupDir -Force }
-  if (-not (Test-Path $hostsPath)) {
+  if (-not (Test-Path -LiteralPath $script:adBackupDir)) { $null = New-Item -ItemType Directory -Path $script:adBackupDir -Force }
+  if (-not (Test-Path -LiteralPath $hostsPath)) {
     Write-LogEntry 'AdFilter: WARN - hosts 파일을 찾을 수 없습니다.'
     $script:adStatus.hosts = 'off(no hosts)'
   } else {
     $backupPath = Join-Path $script:adBackupDir 'hosts.orig.bak'
-    if (-not (Test-Path $backupPath)) { Copy-Item -Path $hostsPath -Destination $backupPath -Force -ErrorAction Stop }
+    if (-not (Test-Path -LiteralPath $backupPath)) { Copy-Item -LiteralPath $hostsPath -Destination $backupPath -Force -ErrorAction Stop }
     $raw = [IO.File]::ReadAllText($hostsPath, [Text.Encoding]::Default)
     $kept = New-Object System.Collections.ArrayList
     $inBlock = $false
@@ -3197,7 +3243,7 @@ try {
   $dnsStatePath = Join-Path $script:adBackupDir 'dns-state.json'
   $dnsState = Get-JsonState $dnsStatePath
   if (Get-Cfg 'adDnsEnabled') {
-    $servers = @(@(Get-Cfg 'adDnsServers') | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' })
+    $servers = @(@(Get-Cfg 'adDnsServers') | ForEach-Object { [string]$_ } | Where-Object { Test-IPv4Literal $_ })
     if ($servers.Count -eq 0) {
       Write-LogEntry 'AdFilter: WARN - adDnsServers 가 비어 있거나 형식이 잘못되어 DNS 변경을 건너뜁니다.'
       $recommendations += '[AdFilter] adDnsEnabled=true 인데 adDnsServers 가 올바른 IPv4 주소가 아닙니다.'
@@ -3273,8 +3319,8 @@ try {
       $recommendations += '[AdFilter] DNS 복원에 실패했습니다. 네트워크 어댑터 DNS 설정을 직접 확인하세요(어댑터를 삭제/교체하면 자동 복원 불가).'
       $script:adStatus.dns = 'off(restore failed)'
     } else {
-      if (Test-Path $dnsStatePath) {
-        Remove-Item $dnsStatePath -Force -ErrorAction SilentlyContinue
+      if (Test-Path -LiteralPath $dnsStatePath) {
+        Remove-Item -LiteralPath $dnsStatePath -Force -ErrorAction SilentlyContinue
         $null = ipconfig /flushdns 2>&1
         if ($restoredDns -gt 0) {
           Add-AutoFix "DNS 서버 원래대로 복원 (어댑터 $($restoredDns)개)"
@@ -3375,7 +3421,7 @@ $pkgCacheDirs = @(
   @{Name='huggingface'; Path="$env:USERPROFILE\.cache\huggingface"; AutoPurge=$false }
 )
 foreach ($cp in $pkgCacheDirs) {
-  if (-not (Test-Path $cp.Path)) { continue }
+  if (-not (Test-Path -LiteralPath $cp.Path)) { continue }
   $sz = Get-ChildItem -Path $cp.Path -Recurse -File -ErrorAction SilentlyContinue |
         Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue
   $szGB = if ($sz -and $sz.Sum) { [math]::Round($sz.Sum / 1GB, 2) } else { 0 }
@@ -3578,15 +3624,17 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 function Test-ChkdskNameBlocked {
   # 이미지 이름 단위 실행 차단 탐지: 같은 이름(chkdsk.exe)의 무해한 실행 파일로 테스트
   # (내용/경로/ACL과 무관하게 이름만으로 차단되는 드라이버가 존재함 - 예: Riot Vanguard vgk)
-  $probe = Join-Path $env:TEMP 'chkdsk.exe'
+  # 예측 가능한 이름($env:TEMP\chkdsk.exe)은 심볼릭 링크/사전 배치로 악용될 수 있으므로
+  # GUID 파일명 + 배타적 생성에 가까운 쓰기를 쓰고, cmd.exe 경유 없이 직접 실행한다.
+  $probe = Join-Path ([IO.Path]::GetTempPath()) ('chkdsk_probe_' + [guid]::NewGuid().ToString('N') + '.exe')
   try {
-    Copy-Item -Path "$env:SystemRoot\System32\hostname.exe" -Destination $probe -Force -ErrorAction Stop
-    $out = & cmd /c "`"$probe`" 2>&1" | Out-String
+    Copy-Item -LiteralPath "$env:SystemRoot\System32\hostname.exe" -Destination $probe -Force -ErrorAction Stop
+    $out = & $probe 2>&1 | Out-String
     return ($out -match '(?i)access is denied|액세스가 거부')
   } catch {
     return $false
   } finally {
-    Remove-Item -Path $probe -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -3703,17 +3751,26 @@ function Get-ImageNameBlockerHint {
 
 function Invoke-ChkdskElevated {
   param([string]$Drive, [string]$Arg)
-  $tmpOut = Join-Path $env:TEMP "chkdsk_$(Get-Random).tmp"
+  # 드라이브와 스위치는 화이트리스트로 제한한다. cmd.exe 메타문자(& | > ^ 등)가 섞일 여지를 없앤다.
+  if ($Drive -notmatch '^[A-Za-z]:$') { throw "유효하지 않은 드라이브 지정입니다: $Drive" }
+  if ($Arg -notin @('/scan', '/spotfix', '/f')) { throw "유효하지 않은 chkdsk 인자입니다: $Arg" }
+  # 예측 가능한 임시 파일명(Get-Random) 대신 GUID 를 쓴다.
+  $tmpOut = Join-Path ([IO.Path]::GetTempPath()) ('chkdsk_' + [guid]::NewGuid().ToString('N') + '.tmp')
+  $exe = '%SystemRoot%\System32\chkdsk.exe'
   if ($isAdmin) {
-    $null = & cmd /c "chkdsk $Drive $Arg >`"$tmpOut`" 2>&1"
+    # cmd.exe 경유 없이 chkdsk.exe 를 직접 호출한다(출력은 파이프로 파일에 기록).
+    $null = & "$env:SystemRoot\System32\chkdsk.exe" $Drive $Arg 2>&1 | Out-File -LiteralPath $tmpOut -Encoding UTF8
     $ec = $LASTEXITCODE
   } else {
-    $p = Start-Process -FilePath 'cmd.exe' -ArgumentList "/c chkdsk $Drive $Arg >`"$tmpOut`" 2>&1" -Verb RunAs -Wait -PassThru -WindowStyle Hidden
+    # 상승이 필요한 경우에만 cmd /c 를 쓰고, 검증된 값 + GUID 경로만 조합한다.
+    $cmdBody = $exe + ' ' + $Drive + ' ' + $Arg + ' > "' + $tmpOut + '" 2>&1'
+    $cArg = Join-CliArgs @('/d', '/c', $cmdBody)
+    $p = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList $cArg -Verb RunAs -Wait -PassThru -WindowStyle Hidden
     $ec = $p.ExitCode
   }
-  if (Test-Path $tmpOut) {
-    $result = Get-Content $tmpOut -Raw
-    Remove-Item $tmpOut -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $tmpOut) {
+    $result = Get-Content -LiteralPath $tmpOut -Raw
+    Remove-Item -LiteralPath $tmpOut -Force -ErrorAction SilentlyContinue
   } else { $result = '' }
   return @{ ExitCode = $ec; Output = $result }
 }
@@ -3759,10 +3816,19 @@ try {
           $recommendations += "[CHKDSK] $drive 검사가 게임 안티치트/보안 프로그램에 막혔습니다. 해결 순서: (1) 게임과 런처를 완전히 종료(트레이 아이콘까지)한 뒤 이 점검을 다시 실행, (2) 그래도 막히면 재부팅 직후(게임 실행 전)에 점검, (3) 계속 막히면 안전 모드에서 'chkdsk $drive /f' 실행 — 안전 모드에서는 안티치트가 로드되지 않습니다."
         } else {
           # 주의: fsutil dirty set은 spotfix만 유발한다. 전체 검사는 chkdsk /f 예약(Y)으로만 설정된다.
+          # $drive 는 Win32_LogicalDisk.DeviceID 이지만 방어적으로 형식을 검증한다.
+          if ($drive -notmatch '^[A-Za-z]:$') { throw "유효하지 않은 드라이브 지정입니다: $drive" }
+          # %SystemRoot% 는 시스템이 관리하는 값이라 exe 경로 하이재킹 여지가 없다.
+          # 드라이브만 화이트리스트 값으로 들어가므로 echo Y| ... 문자열에 메타문자가 끼어들 수 없다.
+          # echo Y| 는 cmd.exe 파이프로 재부팅 검사 질문에 자동 응답하기 위한 것이다.
+          # Invoke-ChkdskElevated 와 동일하게 Join-CliArgs 로 인자를 조립한다.
+          # 문자열을 직접 이어 붙이지 않아 검증된 드라이브 값과 고정 문자열만 전달된다.
+          $fixCmd = 'echo Y| %SystemRoot%\System32\chkdsk.exe ' + $drive + ' /f'
+          $cArg = Join-CliArgs @('/d', '/c', $fixCmd)
           if ($isAdmin) {
-            $null = & cmd /c "echo Y| chkdsk $drive /f" 2>&1
+            $null = & "$env:SystemRoot\System32\cmd.exe" /d /c $fixCmd 2>&1
           } else {
-            Start-Process -FilePath 'cmd.exe' -ArgumentList "/c echo Y| chkdsk $drive /f" -Verb RunAs -Wait -WindowStyle Hidden
+            Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList $cArg | Out-Null
           }
           $boot = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name BootExecute -ErrorAction SilentlyContinue).BootExecute
           $bootStr = if ($boot) { $boot -join ' ' } else { '' }
@@ -3810,7 +3876,7 @@ Write-ProgressBar "BSOD"
 Write-TestHeader "[BSOD] 블루스크린 Minidump 파일 존재 여부를 확인합니다."
 try {
   $dumpDir = "$env:windir\Minidump"
-  if (-not (Test-Path $dumpDir)) {
+  if (-not (Test-Path -LiteralPath $dumpDir)) {
     Write-LogEntry 'BSOD: PASS - No minidump directory (no BSOD history)'
   } else {
     $dumps = @(Get-ChildItem -Path $dumpDir -Filter '*.dmp' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
@@ -3929,15 +3995,15 @@ try {
   $sfcTimedOut = -not $sfcProc.WaitForExit(600000)
   if ($sfcTimedOut) { $sfcProc.Kill(); Start-Sleep 1 }
   $sfcRaw = ''
-  if (Test-Path $sfcTemp) {
+  if (Test-Path -LiteralPath $sfcTemp) {
     # sfc는 UTF-16LE(BOM 없음)로 출력 → 바이트로 읽어 인코딩 판별 (Get-Content 기본 디코딩은 깨짐)
     try {
       $sfcBytes = [System.IO.File]::ReadAllBytes($sfcTemp)
       $isUtf16 = ($sfcBytes.Length -gt 3 -and (($sfcBytes[0] -eq 0xFF -and $sfcBytes[1] -eq 0xFE) -or ($sfcBytes[1] -eq 0 -and $sfcBytes[3] -eq 0)))
       $sfcRaw = if ($isUtf16) { [System.Text.Encoding]::Unicode.GetString($sfcBytes) } else { [System.Text.Encoding]::UTF8.GetString($sfcBytes) }
-    } catch { $sfcRaw = Get-Content $sfcTemp -Raw -ErrorAction SilentlyContinue }
+    } catch { $sfcRaw = Get-Content -LiteralPath $sfcTemp -Raw -ErrorAction SilentlyContinue }
   }
-  Remove-Item $sfcTemp -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $sfcTemp -Force -ErrorAction SilentlyContinue
   $sfcOut = $sfcRaw -replace "`0", ""
   if ($dismProc) { $dismProc.WaitForExit(); $script:winsxsAnalysisOutput = "DISM exit code: $($dismProc.ExitCode)"; $script:winsxsAnalysisEc = $dismProc.ExitCode }
   if ($sfcOut -match '(?i)(무결성 위반을.{0,4}지 못했습니다|찾지 못했습니다|did not find any integrity violations|no integrity violations)') {
@@ -4772,7 +4838,7 @@ try {
   # 기존 로그 기반 치유
   $healLog = Get-LatestLog
   if ($healLog) {
-    $healContent = Get-Content -Path $healLog -Raw -ErrorAction SilentlyContinue
+    $healContent = Get-Content -LiteralPath $healLog -Raw -ErrorAction SilentlyContinue
     if ($healContent -match '(?i)Windows Update .*winget.*failed') { Update-ConfigWingetDisabled; Write-LogEntry 'AutoHeal: CHANGE - winget 자동 업데이트 비활성화 완료' }
   }
   Ensure-PSWindowsUpdateModule
@@ -4795,7 +4861,7 @@ try {
 if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
   try {
     $desktopCleanupPath = ''
-    if (-not [string]::IsNullOrWhiteSpace($ReportTo) -and (Test-Path $ReportTo)) { $desktopCleanupPath = $ReportTo }
+    if (-not [string]::IsNullOrWhiteSpace($ReportTo) -and (Test-Path -LiteralPath $ReportTo)) { $desktopCleanupPath = $ReportTo }
     else { $desktopCleanupPath = [Environment]::GetFolderPath('Desktop') }
     if ([string]::IsNullOrEmpty($desktopCleanupPath)) { $desktopCleanupPath = '' }
     if ($desktopCleanupPath) {
@@ -5244,8 +5310,8 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
   #   관리자 계정의 바탕화면이 된다 → 사용자는 "결과 메모장이 안 생긴다" 고 느낀다(2026-11-14).
   #   run-now.ps1 이 사용자 바탕화면 경로를 -ReportTo 로 넘겨주면 그곳에 쓴다.
   $desktopPath = ''
-  if (-not [string]::IsNullOrWhiteSpace($script:desktopPathForReport) -and (Test-Path $script:desktopPathForReport)) { $desktopPath = $script:desktopPathForReport }
-  elseif (-not [string]::IsNullOrWhiteSpace($ReportTo) -and (Test-Path $ReportTo)) { $desktopPath = $ReportTo }
+  if (-not [string]::IsNullOrWhiteSpace($script:desktopPathForReport) -and (Test-Path -LiteralPath $script:desktopPathForReport)) { $desktopPath = $script:desktopPathForReport }
+  elseif (-not [string]::IsNullOrWhiteSpace($ReportTo) -and (Test-Path -LiteralPath $ReportTo)) { $desktopPath = $ReportTo }
   else { $desktopPath = [Environment]::GetFolderPath('Desktop') }
   try { Write-LogEntry "REPORT: target desktop = $desktopPath" } catch { }
   if (-not [string]::IsNullOrEmpty($desktopPath)) {
@@ -5354,8 +5420,8 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
 
       # 로그 파일에서 이번 실행 분량만 추출
       $logContent = ''
-      if (Test-Path $logPath) {
-        $rawContent = Get-Content -Path $logPath -Raw -Encoding UTF8
+      if (Test-Path -LiteralPath $logPath) {
+        $rawContent = Get-Content -LiteralPath $logPath -Raw -Encoding UTF8
         $sections = @($rawContent -split '(?=\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})' | Where-Object { $_ -match 'Starting maintenance' })
         $logContent = if ($sections.Count -gt 0) { $sections[-1] } else { $rawContent }
       }
@@ -5443,7 +5509,7 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       #   (관리자 계정이 달라 사용자 바탕화면에 못 쓴 경우에도 결과를 찾을 수 있게)
       $savedPath = ''
       try {
-        $report | Out-File -FilePath $desktopLogPath -Encoding UTF8
+        $report | Out-File -LiteralPath $desktopLogPath -Encoding UTF8
         $savedPath = $desktopLogPath
         Write-Output "Desktop maintenance report created: $desktopLogPath"
       } catch {
@@ -5451,7 +5517,7 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       }
       try {
         $reportCopyPath = Join-Path $logDir 'last-report.txt'
-        $report | Out-File -FilePath $reportCopyPath -Encoding UTF8
+        $report | Out-File -LiteralPath $reportCopyPath -Encoding UTF8
         if (-not $savedPath) { $savedPath = $reportCopyPath; Write-Output ((L '데스크톱에 저장하지 못해 사본을 남겼습니다: ' 'Could not save to desktop; kept a copy at: ') + $reportCopyPath) }
         else { Write-Output "Report copy: $reportCopyPath" }
       } catch {

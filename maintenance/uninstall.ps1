@@ -13,6 +13,22 @@ param([switch]$RestoreAds)
 $ErrorActionPreference = 'Continue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
+# --- 인자 안전 조인 (PS 5.1 대응) ---
+# CANONICAL HELPER v1: 아래 2개 함수는 6개 스크립트 사본이 모두 동일해야 함. 변경 시 전부 갱신 + tests\verify-helper-parity.ps1 검증.
+function ConvertTo-CliArg {
+  param([AllowNull()][string]$Value)
+  if ($null -eq $Value) { return '""' }
+  $v = [string]$Value
+  $v = [regex]::Replace($v, '(\\*)"', '$1$1\"')
+  $v = [regex]::Replace($v, '(\\+)$', '$1$1')
+  if ($v -match '[\s"]') { return '"' + $v + '"' }
+  return $v
+}
+function Join-CliArgs {
+  param([string[]]$Arguments)
+  return (@($Arguments | ForEach-Object { ConvertTo-CliArg $_ }) -join ' ')
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $taskName = 'OpenCode-Maintenance'
 
@@ -20,8 +36,8 @@ $taskName = 'OpenCode-Maintenance'
 function Get-KitVersionText {
   try {
     $vf = Join-Path $root 'VERSION'
-    if (Test-Path $vf) {
-      $vlines = @(Get-Content -Path $vf -Encoding UTF8 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if (Test-Path -LiteralPath $vf) {
+      $vlines = @(Get-Content -LiteralPath $vf -Encoding UTF8 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
       if ($vlines.Count -ge 1) {
         $v = ([string]$vlines[0]).Trim()
         if ($vlines.Count -ge 2) { return ("v$v (" + ([string]$vlines[1]).Trim() + ")") }
@@ -86,9 +102,9 @@ function Restore-AdSettings {
   $warn = @()
 
   # (1) HKCU 값 + SoftLanding 예약 작업
-  if (Test-Path $adStatePath) {
+  if (Test-Path -LiteralPath $adStatePath) {
     try {
-      $st = Get-Content $adStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+      $st = Get-Content -LiteralPath $adStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
       foreach ($sv in @($st.values)) {
         if ($null -eq $sv) { continue }
         try {
@@ -104,7 +120,7 @@ function Restore-AdSettings {
           $restored++
         } catch { $warn += "예약 작업 복원 실패: $($tk.name)" }
       }
-      Remove-Item $adStatePath -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $adStatePath -Force -ErrorAction SilentlyContinue
       Write-Host '  레지스트리/예약 작업 복원'
     } catch { $warn += "ad-state.json 읽기 실패: $($_.Exception.Message)" }
   }
@@ -113,7 +129,7 @@ function Restore-AdSettings {
   $hostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
   $ms = '# >>> AutoMaintenance AdBlock v1 >>>'
   $me = '# <<< AutoMaintenance AdBlock v1 <<<'
-  if (Test-Path $hostsPath) {
+  if (Test-Path -LiteralPath $hostsPath) {
     try {
       $raw = [IO.File]::ReadAllText($hostsPath, [Text.Encoding]::Default)
       if ($raw.Contains($ms)) {
@@ -135,9 +151,9 @@ function Restore-AdSettings {
   }
 
   # (3) DNS 서버 원래대로
-  if (Test-Path $dnsStatePath) {
+  if (Test-Path -LiteralPath $dnsStatePath) {
     try {
-      $ds = Get-Content $dnsStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+      $ds = Get-Content -LiteralPath $dnsStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
       foreach ($rec in @($ds.adapters)) {
         if ($null -eq $rec) { continue }
         try {
@@ -153,7 +169,7 @@ function Restore-AdSettings {
           Write-Host "  DNS 복원: $($rec.alias)"
         } catch { $warn += "DNS 복원 실패($($rec.alias)): $($_.Exception.Message)" }
       }
-      Remove-Item $dnsStatePath -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $dnsStatePath -Force -ErrorAction SilentlyContinue
     } catch { $warn += "dns-state.json 읽기 실패: $($_.Exception.Message)" }
   }
 
@@ -167,9 +183,9 @@ function Restore-AdSettings {
 if (-not (Test-Admin)) {
   Write-Host (L '관리자 권한이 필요합니다. 확인 창에서 "예"를 누르세요...' 'Administrator rights are required. Click "Yes" in the prompt...')
   try {
-    $argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $PSCommandPath
-    if ($RestoreAds) { $argLine += ' -RestoreAds' }
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine | Out-Null
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
+    if ($RestoreAds) { $argList += '-RestoreAds' }
+    Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Verb RunAs -ArgumentList (Join-CliArgs $argList) | Out-Null
   } catch {
     Write-Host (L '제거를 취소했습니다.' 'Removal cancelled.')
     Start-Sleep -Seconds 2
@@ -209,7 +225,7 @@ if ($answer -notmatch '^(y|Y|ㅛ|예)$') {
 # 광고/추천 설정을 켜 둔 적이 있으면 함께 되돌릴지 묻는다(권장: 예).
 $adBackup = Join-Path $root 'Simple maintenance\adbackup'
 $restoreAds = $false
-if (Test-Path $adBackup) {
+if (Test-Path -LiteralPath $adBackup) {
   Write-Host ''
   $a2 = Read-Host (L '광고/추천 설정도 원래대로 되돌릴까요? (y = 예, 그 외 = 그대로 두기)' 'Restore ad/recommendation settings too? (y = yes, anything else = leave as is)')
   if ($a2 -match '^(y|Y|ㅛ|예)$') { $restoreAds = $true }

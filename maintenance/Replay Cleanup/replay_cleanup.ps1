@@ -27,9 +27,9 @@ function Write-Log($msg) {
 
 # --- 3개월 간격 마커 체크 (Force 제외) ---
 if (-not $Force) {
-    if (Test-Path $MarkerFile) {
+    if (Test-Path -LiteralPath $MarkerFile) {
         try {
-            $last = [datetime]::Parse((Get-Content $MarkerFile -Raw).Trim())
+            $last = [datetime]::Parse((Get-Content -LiteralPath $MarkerFile -Raw).Trim())
             if ($last.AddMonths($Months) -gt (Get-Date)) {
                 Write-Host "아직 3개월이 안 지났습니다. (마지막 정리: $($last.ToString('yyyy-MM-dd')))"
                 exit 0
@@ -38,7 +38,7 @@ if (-not $Force) {
     }
 }
 
-if (-not (Test-Path $Target)) {
+if (-not (Test-Path -LiteralPath $Target)) {
     Write-Log "대상 폴더 없음 (건너뜀): $Target"
     exit 0
 }
@@ -87,6 +87,6 @@ if ($WhatIf) {
     Write-Log "[WhatIf] $($old.Count) 파일 / ${oldGB}GB 가 삭제 대상입니다. 실제 삭제 안 함."
 } else {
     Write-Log "완료: 삭제 $deleted / 실패 $failed / 확보 $([math]::Round($freedMB/1MB,0))MB"
-    (Get-Date).ToString('yyyy-MM-dd HH:mm:ss') | Set-Content -Path $MarkerFile -Encoding UTF8
+    (Get-Date).ToString('yyyy-MM-dd HH:mm:ss') | Set-Content -LiteralPath $MarkerFile -Encoding UTF8
     Write-Log "마커 갱신 완료. 다음 정리는 3개월 후 자동."
 }

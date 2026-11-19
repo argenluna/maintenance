@@ -17,6 +17,22 @@ param([string]$ReportTo = '')
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
+# --- 인자 안전 조인 (PS 5.1 대응) ---
+# CANONICAL HELPER v1: 아래 2개 함수는 6개 스크립트 사본이 모두 동일해야 함. 변경 시 전부 갱신 + tests\verify-helper-parity.ps1 검증.
+function ConvertTo-CliArg {
+  param([AllowNull()][string]$Value)
+  if ($null -eq $Value) { return '""' }
+  $v = [string]$Value
+  $v = [regex]::Replace($v, '(\\*)"', '$1$1\"')
+  $v = [regex]::Replace($v, '(\\+)$', '$1$1')
+  if ($v -match '[\s"]') { return '"' + $v + '"' }
+  return $v
+}
+function Join-CliArgs {
+  param([string[]]$Arguments)
+  return (@($Arguments | ForEach-Object { ConvertTo-CliArg $_ }) -join ' ')
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $sm = Join-Path $root 'Simple maintenance'
 $wrapper = Join-Path $root 'run-maintenance.ps1'
@@ -26,8 +42,8 @@ $myDesktop = [Environment]::GetFolderPath('Desktop')
 function Get-KitVersionText {
   try {
     $vf = Join-Path $root 'VERSION'
-    if (Test-Path $vf) {
-      $vlines = @(Get-Content -Path $vf -Encoding UTF8 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if (Test-Path -LiteralPath $vf) {
+      $vlines = @(Get-Content -LiteralPath $vf -Encoding UTF8 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
       if ($vlines.Count -ge 1) {
         $v = ([string]$vlines[0]).Trim()
         if ($vlines.Count -ge 2) { return ("v$v (" + ([string]$vlines[1]).Trim() + ")") }
@@ -49,8 +65,8 @@ if (-not (Test-Admin)) {
   Write-Host '관리자 권한이 필요합니다. 확인 창에서 "예"를 누르세요...'
   try {
     # 원래(사용자) 바탕화면 경로를 그대로 넘겨 결과 파일이 항상 이 사용자 바탕화면에 생기게 한다.
-    $argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ReportTo "{1}"' -f $PSCommandPath, $myDesktop
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine | Out-Null
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-ReportTo', $myDesktop)
+    Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Verb RunAs -ArgumentList (Join-CliArgs $argList) | Out-Null
   } catch {
     Write-Host '점검을 취소했습니다(관리자 권한 거부).'
     Start-Sleep -Seconds 2
@@ -60,7 +76,7 @@ if (-not (Test-Admin)) {
 
 if ([string]::IsNullOrWhiteSpace($ReportTo)) { $ReportTo = $myDesktop }
 
-if (-not (Test-Path $wrapper)) {
+if (-not (Test-Path -LiteralPath $wrapper)) {
   Write-Host "오류: $wrapper 를 찾을 수 없습니다. 먼저 install.ps1 을 실행하세요."
   Read-Host 'Enter 키를 누르면 닫힙니다'
   exit 1
@@ -73,62 +89,9 @@ Write-Host ("   {0}" -f $kitVersionText)
 Write-Host '=========================================='
 Write-Host ''
 
-# --- v1.8.0: 새 버전 알림 (사용자가 직접 열었을 때만 / 예약 실행은 창을 띄우지 않음) ---
-#   GitHub Release 를 조회해 현재보다 새 버전이 있으면 3버튼 알림창을 띄운다.
-#   "업데이트" = ZIP 안의 업데이트 스크립트를 바로 실행(사용자 클릭이 동의).
-try {
-  $updateCommon = Join-Path $root 'update-common.ps1'
-  if (Test-Path -LiteralPath $updateCommon) {
-    . $updateCommon
-    $upd = Get-UpdateInfo -Root $root -TimeoutSec 8
-    if ($null -ne $upd) {
-      $skipVer = Get-SkipVersion -Root $root
-      if ($skipVer -ne $upd.Latest.ToString()) {
-        $lang = Get-UpdateLanguage
-        if ($lang -eq 'ko') {
-          $msg = "현재 v$($upd.Local)보다 $($upd.VersionsBehind)버전 뒤인 v$($upd.Latest)가 나왔습니다.`n"
-          if ($upd.Features -gt 0) { $msg += "새로운 기능이 $($upd.Features)가지 추가되었습니다.`n" }
-          else { $msg += "새로운 기능·변경 내역은 아래 주소에서 확인할 수 있습니다.`n" }
-          $msg += "업데이트 해보시겠습니까?`n`n"
-          $msg += "  · 업데이트 : 누르면 설치 폴더의 업데이트 스크립트가 실행되어 자동으로 업데이트 됩니다.`n"
-          $msg += "  · 취소 : 현재의 기능으로 만족하시면 취소를 누르시면 됩니다.`n"
-          $msg += "  · 다시 알리지 않음 : 이 버전을 받지 않으시면 이 버튼을 누르세요.`n`n"
-          $msg += "새로운 버전은 $($upd.PageUrl) 여기서 받으시면 됩니다."
-          $title = '새로운 버전이 나왔습니다'
-          $tUpdate = '업데이트'; $tCancel = '취소'; $tSkip = '다시 알리지 않음'
-          $updaterName = '업데이트.ps1'
-        } else {
-          $msg = "v$($upd.Local) is $($upd.VersionsBehind) version(s) behind. v$($upd.Latest) is now available.`n"
-          if ($upd.Features -gt 0) { $msg += "$($upd.Features) new features/changes were added.`n" }
-          else { $msg += "See the release page below for what changed.`n" }
-          $msg += "Would you like to update?`n`n"
-          $msg += "  · Update : runs the update script in the install folder automatically.`n"
-          $msg += "  · Cancel : keep using the current version if you are happy with it.`n"
-          $msg += "  · Don't show again : skip this version's notice.`n`n"
-          $msg += "You can also download the new version from $($upd.PageUrl)"
-          $title = 'A new version is available'
-          $tUpdate = 'Update'; $tCancel = 'Cancel'; $tSkip = "Don't show again"
-          $updaterName = 'update.ps1'
-        }
-        $choice = Show-UpdateDialog -Title $title -Message $msg -UpdateText $tUpdate -CancelText $tCancel -SkipText $tSkip
-        if ($choice -eq 'update') {
-          $updater = Join-Path $root $updaterName
-          if (Test-Path -LiteralPath $updater) {
-            Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $updater) | Out-Null
-            Write-Host '업데이트를 시작합니다. 새 창에서 진행 상황을 확인하세요.'
-            exit 0
-          }
-          Write-Host "업데이트 파일을 찾지 못했습니다: $updater" -ForegroundColor Yellow
-        } elseif ($choice -eq 'skip') {
-          Set-SkipVersion -Root $root -Version $upd.Latest.ToString()
-          Write-Host "v$($upd.Latest) 알림을 건너뜁니다. 더 높은 버전이 나오면 다시 알립니다."
-        }
-      }
-    }
-  }
-} catch {
-  Write-Host "새 버전 확인을 건너뜁니다 (GitHub 연결 실패 등): $($_.Exception.Message)" -ForegroundColor DarkGray
-}
+# v1.12.0: 새 버전 안내는 run-maintenance.ps1 로 옮겼다.
+#   직접 실행(run-now → wrapper -Force)과 예약 실행 모두 wrapper 에서 한 번만 표시한다.
+#   여기서도 띄우면 같은 실행에서 안내창이 두 번 열린다.
 
 # 2026-11-16: 삭제 확인을 한 번만 묻도록 바꿨다(v1.2.0). 항목마다 묻던 안내 문구를 갱신한다.
 Write-Host '※ 파일을 지워야 하는 항목이 있으면, 점검 시작할 때 지울 수 있는 항목을 한 번 보여주고'
@@ -153,9 +116,9 @@ try {
 $resPath = Join-Path $sm 'last-result.json'
 $statusPath = Join-Path $root 'status.json'
 $resultUnknown = $false
-if (Test-Path $statusPath) {
+if (Test-Path -LiteralPath $statusPath) {
   try {
-    $st = Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $st = Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ([string]$st.result -eq 'unknown') { $resultUnknown = $true }
   } catch { }
 }
@@ -165,9 +128,9 @@ if ($resultUnknown) {
   Write-Host '※ 이번에는 점검이 완료되지 않았습니다.' -ForegroundColor Yellow
   Write-Host '   이전 점검이 아직 실행 중이었거나, 실행이 차단되었을 수 있습니다.'
   Write-Host '   바탕화면의 "자동유지보수_안내_…" / "자동유지보수_실패_…" 파일을 확인하세요.'
-} elseif (Test-Path $resPath) {
+} elseif (Test-Path -LiteralPath $resPath) {
   try {
-    $r = Get-Content $resPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $r = Get-Content -LiteralPath $resPath -Raw -Encoding UTF8 | ConvertFrom-Json
     Write-Host '--------------- 결과 ---------------'
     if ($r.status -eq 'PASS') { Write-Host '결과: 정상 — 문제를 찾지 못했습니다.' }
     else { Write-Host '결과: 확인이 필요한 항목이 있습니다.' }
@@ -231,7 +194,7 @@ if ($resultUnknown) {
 #   (관리자 계정이 달라 바탕화면에 못 쓴 경우에도 결과를 보여주기 위함)
 $latest = $null
 foreach ($dir in @($ReportTo, $myDesktop, ([Environment]::GetFolderPath('Desktop')))) {
-  if ([string]::IsNullOrWhiteSpace($dir) -or -not (Test-Path $dir)) { continue }
+  if ([string]::IsNullOrWhiteSpace($dir) -or -not (Test-Path -LiteralPath $dir)) { continue }
   # 2026-11-17 (v1.3.0): 결과 파일이 4개 이상이면 '자동점검결과' 폴더로 옮겨지므로 그 폴더도 함께 본다.
   foreach ($scanDir in @($dir, (Join-Path $dir '자동점검결과'))) {
     if (-not (Test-Path -LiteralPath $scanDir -PathType Container)) { continue }
@@ -243,7 +206,7 @@ foreach ($dir in @($ReportTo, $myDesktop, ([Environment]::GetFolderPath('Desktop
 }
 if (-not $latest) {
   $copy = Join-Path $sm 'logs\last-report.txt'
-  if (Test-Path $copy) { $latest = Get-Item $copy }
+  if (Test-Path -LiteralPath $copy) { $latest = Get-Item -LiteralPath $copy }
 }
 if ($latest) {
   Write-Host ''

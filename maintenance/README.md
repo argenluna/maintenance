@@ -1,4 +1,4 @@
-# Maintenance (Windows / PowerShell)
+﻿# Maintenance (Windows / PowerShell)
 
 자동 유지보수 키트 (윈도우용) — 시스템을 6일에 한 번 스스로 점검하고, 안전한 범위에서 자동 수리합니다. 🪟🔧✨
 Auto Maintenance Kit for Windows — checks itself every 6 days and auto-repairs within safe limits.
@@ -58,6 +58,53 @@ uninstall.ps1 (바탕화면 "자동 유지보수 제거" / "remove maintenance")
 예약 작업은 **현재 로그온한 사용자** 권한(관리자)으로 실행된다(시스템 복원 지점 생성·바탕화면 리포트 때문에).
 그래서 그 사용자가 로그온했을 때만 돌고, 04:00 에 PC가 꺼져 있었으면 다음 로그온/부팅 후에 실행된다
 (`StartWhenAvailable`).
+
+## 설치 폴더와 업데이트 안전 수칙 (v1.12.0)
+
+예약 작업이 **관리자 최고 권한(`-RunLevel Highest`)** 으로 이 폴더의 스크립트를 실행하므로, 폴더 자체를 아무나 쓸 수 있는 곳에 두면 안 됩니다.
+
+- **압축 파일 안에서 실행하지 말고, 반드시 전용 폴더에 완전히 풀어서** `install.cmd` 를 실행하세요.
+  (예: `H:\AutoMaintenance_v1.12.0` 처럼 이 키트만 쓰는 폴더. 공용 폴더·공유 드라이브·`C:\` 루트는 피하세요.)
+  (다른 사용자 계정이나 외부 프로그램이 이 폴더의 `.ps1`/`.json` 파일에 **쓰기 권한을 갖지 않도록 개인 경로를 사용하세요.**)
+- **신뢰할 수 있는 출처에서만 받으세요.** 공식 릴리즈는 <https://github.com/argenluna/maintenance/releases> 뿐입니다.
+  다른 사이트/메일 첨부로 받은 ZIP 은 설치하지 마세요.
+  압축을 푼 뒤 Windows 보안 경고나 파일의 "차단" 표시가 뜨면, 출처가 위 주소임을 확인한 뒤 **차단 해제**하세요.
+  (Defender 경고가 뜨면 "위험한 파일을 다운로드했을 수 있습니다" 안내에서 출처를 확인하고, 알 수 없는 경로면 실행하지 마세요.)
+- 자동 업데이트는 **`.sha256` 해시 파일이 반드시 있는 릴리즈만** 설치합니다.
+  해시가 없거나 다르면 설치 전에 중단합니다. 다운로드는 HTTPS + GitHub 릴리즈 호스트만 허용하고,
+  **302 리다이렉트 후의 최종 URL도 같은 호스트로 검증**합니다.
+  압축을 풀기 전에 `..`/절대경로 엔트리(Zip Slip)를 검사하고, 푼 뒤에는 설치 폴더의 **모든 `.ps1`/`.psm1` 구문 검사**를 통과해야 `install.ps1` 을 실행합니다.
+- 관리자 재실행·예약 작업·바로가기는 스크립트 자기 경로(`$PSCommandPath`/`$PSScriptRoot`)만 사용하고
+  인자를 하나하나 이스케이프해서 넘깁니다. 경로에 공백이나 특수문자가 있어도 안전합니다.
+  `chkdsk /f` 예약도 같은 인자 조인(`Join-CliArgs`)을 거치므로 문자열을 직접 이어 붙이지 않습니다.
+- 모든 파일 조회는 `-LiteralPath` 를 씁니다. 설치 폴더나 결과 경로에 대괄호(`[`, `]`)가 있어도
+  와일드카드로 오해하지 않고 그대로 찾습니다.
+- `chkdsk` 는 드라이브(`^[A-Za-z]:$`)와 스위치(`/scan`,`/spotfix`,`/f`)를 화이트리스트로 제한한 뒤 호출합니다.
+- `install.cmd` 런처도 패키지 필수 파일로 확인합니다. 런처 내용 무결성은 릴리즈 ZIP 전체의 `.sha256` 으로 검증됩니다.
+- PSGallery 에서 가져오는 `PSWindowsUpdate` 모듈은 **게시자 서명 검증을 유지**합니다(`-SkipPublisherCheck` 미사용).
+- **`config.json` 검증**: `tempDirs` 는 드라이브 루트/사용자 데이터 폴더를 거부하고, `adDnsServers` 는 각 옥텟이 0~255인 IPv4 만 받습니다.
+  타입이 잘못된 값은 안전한 기본값으로 되돌립니다.
+
+### 개발자용 검증
+
+인자 이스케이프 헬퍼(`ConvertTo-CliArg`/`Join-CliArgs`)는 진입점마다 복사해 두어,
+한 곳만 수정하면 예약 작업·바로가기·업데이트의 인자가 서로 달라질 수 있습니다.
+사본이 모두 같은지 아래로 확인하세요 (줄바꿈 차이는 무시합니다).
+
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\verify-helper-parity.ps1
+```
+
+### 구버전 폴더(롤백) 관리 기준
+
+업데이트는 **새 폴더를 옆에 만들고 기존 폴더는 지우지 않고 남깁니다** (문제 생기면 옛 폴더로 돌아갈 수 있게).
+
+- 예약 작업과 바탕화면 바로가기는 **항상 최신 폴더만** 가리킵니다. 설치 시 이전 버전의 바로가기 이름은 정리됩니다.
+- 남아 있는 구버전 폴더에는 자동 점검이 등록되어 있지 않습니다. 폴더 안의 스크립트를 **직접 더블클릭하지 마세요.**
+  새 버전이 며칠간 정상이면 구버전 폴더는 직접 지워도 됩니다 (설정·로그는 새 폴더로 이미 이어받았습니다).
+
+> 참고: 초보자도 그냥 더블클릭할 수 있게 `-ExecutionPolicy Bypass` 는 유지합니다.
+> 대신 위의 **전용 폴더 + 공식 릴리즈 + 해시/경로/구문 검증**으로 실행 파일 변조 위험을 막습니다.
 
 ## "지금 점검" 창이 사라지거나 결과 메모장이 안 생길 때 (2026-11-14 수정)
 
@@ -684,14 +731,14 @@ Discussions: https://github.com/argenluna/maintenance/discussions
 | `install.ps1` | 설치: 승격 → 문법검사 → 예약 작업 등록 → 바로가기 3개 → 첫 점검 | 1회 |
 | `readme.txt` | 사용 방법 (일반 사용자용 요약) | |
 | `newbie.txt` | **완전 초보자용 안내서** — 38개 검사를 레고·집·주방 비유로 설명 | |
-| `run-now.ps1` | "지금 점검" (`run-maintenance.ps1 -Force` + 결과 요약) + **v1.8.0 새 버전 알림** | 바로가기 대상 |
-| `update-common.ps1` | GitHub Releases 조회 / 버전 비교 / 3버튼 알림창 / `update-skip.txt` 관리 (v1.8.0) | `run-now.ps1`·`업데이트.ps1` 이 dot-source |
+| `run-now.ps1` | "지금 점검" (`run-maintenance.ps1 -Force` + 결과 요약) | 바로가기 대상 |
+| `update-common.ps1` | GitHub Releases 조회 / 버전 비교 / 3버튼 알림창 / `update-skip.txt` 관리 (v1.12.0) | `run-maintenance.ps1`·`업데이트.ps1` 이 dot-source |
 | `업데이트.ps1` / `update.ps1` | 최신 ZIP+SHA256 검증 → 새 버전 폴더 생성 → 상태 이어받기 → `install.ps1 -NoFirstRun` 재등록 (v1.8.0) | 알림창 "업데이트" 버튼 대상 |
 | `update-skip.txt` | "다시 알리지 않음"으로 지정한 버전 (런타임 생성) | git 미포함 |
 | `feedback.ps1` | **마스킹+악성코드 검증 → 동의/비동의 선택 → GitHub Discussion 자동 업로드** (`-SelfTest`, `-DryRun` 지원) | 바로가기 대상 |
 | `자동유지보수_피드백상태.txt` (바탕화면) | 마지막 피드백 실행 결과(성공/실패/비동의·URL·오류·차단 건수), 덮어쓰기 | 실행 결과 가시화 |
 | `uninstall.ps1` | 예약 작업/바로가기 제거 (로그·설정 보존) · `-RestoreAds` = 광고 설정만 복원 | 바로가기 대상 |
-| `run-maintenance.ps1` | 주기 게이트, `status.json` 갱신, `maintenance.ps1` 호출 | 예약 작업 대상 |
+| `run-maintenance.ps1` | 주기 게이트, **`새 버전 안내창(직접/자동 공통)`**, `status.json` 갱신, `maintenance.ps1` 호출 | 예약 작업 대상 |
 | `Simple maintenance\maintenance.ps1` | 실제 점검/자동 수리 (38단계) | |
 | `config.json` / `Simple maintenance\config.json` | 설정 (wrapper용 / 실행용) | 키는 아래 참고 |
 | `logs\`, `Simple maintenance\logs\` | 런타임 로그 | **git 미포함** (`.gitignore`) |
@@ -708,16 +755,22 @@ Discussions: https://github.com/argenluna/maintenance/discussions
 이제 예약 작업은 `install.ps1` 이 등록하는 `OpenCode-Maintenance` **하나뿐**이다.
 (구 check 모드는 `registerTask=false` 일 때 `OpenCode-Maintenance-*` 를 일괄 삭제하는 부작용도 있었다.)
 
-## 새 버전 알림 / 업데이트 (v1.8.0, v1.8.1 문서 정비)
+## 새 버전 알림 / 업데이트 (v1.12.0)
 
-- **1단계(기본)**: 사용자가 바탕화면 "지금 점검"을 열 때 `update-common.ps1`이
+- **1단계(기본)**: `run-maintenance.ps1`이 `update-common.ps1`을 dot-source 해서
   `https://api.github.com/repos/argenluna/maintenance/releases?per_page=100` 을 조회한다.
-  현재 `VERSION`보다 높은 릴리스가 있으면 커스텀 WinForms 창을 띄운다.
-  - 문구: `현재 vX보다 n버전 뒤인 vY가 나왔습니다 / 새로운 기능이 m가지 추가되었습니다 / 업데이트 해보시겠습니까?`
+  현재 `VERSION`보다 높은 릴리스가 있으면 **화면 중앙에 커스텀 WinForms 창**을 띄운다.
+  - **직접 실행이든 예약(자동) 실행이든 동일하게 띄운다.** 알림은 wrapper 한 곳에만 있어
+    한 번의 실행에서 두 번 열리지 않는다(`run-now.ps1`에는 알림 코드가 없다).
+    주기 게이트를 통과한 뒤에 조회하므로, 건너뛰는 실행에서는 네트워크/팝업이 없다.
+  - 문구: `자동유지보수 새 버전이 나왔습니다 / 현재 vX → vY (n버전 뒤) / 새 기능 m가지가 생겼습니다 / [기능 목록]`
   - `n` = 현재보다 새 릴리스 수, `m` = 새 릴리스 본문의 목록 항목(`-`, `*`, `·`, `1.`) 수.
+    목록은 마크다운 장식을 벗겨 최대 6개까지 창에 표시하고, 나머지는 "외 N건"으로 줄인다.
   - 버튼: **업데이트**(OK) / **취소**(Cancel) / **다시 알리지 않음**(Ignore).
-  - 예약 실행(`run-maintenance.ps1`)에서는 창을 띄우지 않는다(사용자가 직접 열었을 때만).
-  - GitHub 연결 실패·API 오류는 조용히 무시하고 점검을 계속한다.
+  - **자동 실행은 30초 뒤 자동으로 닫힌다**(취소로 처리되어 점검은 계속 진행).
+    수동 실행(`-Force`)은 사용자가 선택할 때까지 기다린다.
+  - 창은 `CenterScreen` + `TopMost` 라 다른 창 위 중앙에 뜬다.
+  - GitHub 연결 실패·팝업 오류는 조용히 무시하고 점검을 계속한다. 선택/오류는 `logs\runner-*.log` 에 기록된다.
 - **2단계**: `업데이트` 클릭 시 ZIP에 포함된 `업데이트.ps1`(영문 `update.ps1`)이 관리자 권한으로 실행된다.
   1. 최신 릴리스의 `AutoMaintenance_v*.zip` 과 `.sha256`을 내려받아 **SHA-256 검증**
   2. 기존 설치 폴더 **옆**에 `AutoMaintenance_v<새버전>` 폴더 생성
