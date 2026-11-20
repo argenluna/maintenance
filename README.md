@@ -3,14 +3,14 @@
 # 🪟 Windows 자동 유지보수 키트
 ### Windows Auto Maintenance Kit
 
-**최신 버전 v1.14.0** · 3단계 설치 · 6일마다 자동 점검 · 안전 우선 · 새 버전 알림
+**최신 버전 v1.14.1** · 3단계 설치 · 6일마다 자동 점검 · 안전 우선 · 새 버전 알림
 
 [![조회수](https://img.shields.io/badge/views-67-blue?style=flat-square&label=%EC%A1%B0%ED%9A%8C%EC%88%98)](https://github.com/argenluna/maintenance/graphs/traffic)
 [![다운로드](https://img.shields.io/github/downloads/argenluna/maintenance/total?style=flat-square&label=%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C&color=brightgreen)](https://github.com/argenluna/maintenance/releases)
 [![최신 버전](https://img.shields.io/github/v/release/argenluna/maintenance?label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&style=flat-square)](https://github.com/argenluna/maintenance/releases/latest)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)
 ![라이선스](https://img.shields.io/badge/license-%EB%B9%84%EC%83%81%EC%97%85%EC%A0%81%C2%B7%EB%AC%B4%EC%95%85%EC%9A%A9-orange?style=flat-square)
-[![SHA-256 검증](https://img.shields.io/badge/SHA--256-verified-brightgreen?style=flat-square)](https://github.com/argenluna/maintenance/releases/tag/v1.14.0)
+[![SHA-256 검증](https://img.shields.io/badge/SHA--256-verified-brightgreen?style=flat-square)](https://github.com/argenluna/maintenance/releases/tag/v1.14.1)
 
 <br>
 
@@ -329,4 +329,4 @@ Unofficial personal tool, not affiliated with Microsoft or any vendor. It change
 
 ---
 
-© 2026 — Windows Auto Maintenance Kit v1.14.0
+© 2026 — Windows Auto Maintenance Kit v1.14.1

@@ -1,0 +1,3 @@
+이 파일을 feedback-token.txt 로 복사하고, 디스커션 쓰기 전용 토큰을 붙여넣으세요.
+feedback-token.txt 는 .gitignore 로 커밋에서 제외됩니다.
+절대 repo/workflow 등 광범위한 권한의 토큰을 넣지 마세요. 공개 ZIP 에 동봉됩니다.

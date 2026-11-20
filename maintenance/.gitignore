@@ -16,6 +16,9 @@ Replay Cleanup/last_run.txt
 # 배포 패키지(빌드 산출물 — 필요할 때 Compress-Archive 로 재생성)
 dist/
 
+# 피드백 업로드용 토큰 (공개 저장소에 절대 커밋하지 않음)
+feedback-token.txt
+
 # 백업 파일
 *.bak
 *.bak-*

@@ -175,6 +175,7 @@ VERSION 파일 (2줄)
 | 1.7.0 | 2026-11-18 | **영어권 이름/결과 txt 영어 출력** — 바로가기를 `auto-maintenance` / `remove maintenance` / `feedback maintenance` 로 변경(v1.6 이름도 제거 대상에 포함). 결과 txt 파일명·보관 폴더(`maintenance results`)·요약·상세 로그 전체를 영어로 출력(한글 문구 치환 맵, 실측 한글 0자). 실패 리포트 `auto-maintenance_failed_*.txt`, 정리/피드백 결과 파일 탐지에 영어 패턴 추가. 한국어 모드는 기존 동작 그대로 |
 | 1.13.0 | 2026-11-19 | **오래된 드라이버 정리** — 같은 제조사·클래스·INF 의 새 버전이 이미 설치됐는데 남은 이전 드라이버를 30일 주기로 감지, 목록은 보여주되 삭제는 직접 실행에서 `y` 확인 후에만 |
 | 1.14.0 | 2026-11-20 | **삭제 확인에 A/Y/N 추가** — 단계마다 묻고 `A`=언제나 삭제(설정에 기억 → 이후 자동), `Y`=현재만 삭제, `N`=거부. `tempAutoDelete`·`browserCacheAutoDelete`·`recycleAutoDelete` 설정 키 추가 — §삭제 전 확인 |
+| 1.14.1 | 2026-11-21 | **피드백 업로드 토큰 동봉** — 배포 ZIP 에 `feedback-token.txt`(Discussions 쓰기 전용 최소 권한)를 포함해 상대 PC 는 토큰 입력 없이 `y` 한 번으로 업로드. `feedback.ps1` 이 동봉 토큰을 읽어 사용 — §피드백 내보내기 |
 
 ## 바탕화면 결과 파일 정리 + 자동 실행 콘솔 표시 (2026-11-17, v1.3.0 / v1.4.0)
 
@@ -743,7 +744,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 
 1. **개인정보 마스킹** — `C:\Users\<이름>`, `도메인\사용자`, hosts 도메인, IP, MAC, 이메일, SSID, 시리얼, 컴퓨터명, 개별 삭제 경로를 제거.
 2. **악성/이상 코드 검증** — `<script>`, `javascript:` URL, HTML 엔티티, `powershell -enc`, `IEX(`/`FromBase64String`, `eval`, 긴 base64 blob, 셸 주입 패턴을 `<BLOCKED:종류>` 로 치환하고 건수를 보고. 진단용 `PASS/WARN/FAIL`, KB 번호, 하드웨어 모델은 유지.
-3. **업로드는 명시적 동의 후에만** — 기본은 비동의. 토큰은 하드코딩하지 않고 `gh auth token` → `GH_TOKEN`/`GITHUB_TOKEN` → 사용자 입력(저장 안 함) 순으로 얻는다.
+3. **업로드는 명시적 동의 후에만** — 기본은 비동의. 토큰은 `GH_TOKEN`/`GITHUB_TOKEN` → **배포본 동봉 `feedback-token.txt`** → `gh auth token` → 사용자 입력(저장 안 함) 순으로 얻는다.
+
+### 배포본 동봉 토큰 (v1.14.1)
+
+ZIP 에 포함된 `feedback-token.txt` 덕분에 **별도 토큰 입력 없이 `y`만 누르면 업로드**된다.
+동봉 토큰은 **Discussions 쓰기 권한만 가진 fine-grained PAT** 이며, 접근 저장소는 `argenluna/maintenance` 하나뿐이다.
+`repo`/`workflow` 같은 광범위한 토큰을 절대 넣지 말 것 — 공개 ZIP 을 통해 전체 권한이 유출된다.
+동봉 토큰을 쓰고 싶지 않으면 `feedback-token.txt` 를 삭제하면 된다(이전처럼 `gh auth` 또는 직접 입력으로 동작).
 
 ### 실행 결과 확인
 
@@ -753,7 +761,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 
 ### 기술 메모
 
-- GitHub **REST 는 Discussion 생성을 지원하지 않는다** (`POST /repos/.../discussions` → 404). 따라서 **GraphQL `createDiscussion`** 을 사용한다 (토큰 `repo` 스코프면 충분).
+- GitHub **REST 는 Discussion 생성을 지원하지 않는다** (`POST /repos/.../discussions` → 404). 따라서 **GraphQL `createDiscussion`** 을 사용한다 (`discussions:write` 또는 classic `repo` 스코프면 충분).
 - 저장소 node ID / General 카테고리 ID 는 GraphQL 로 매번 동적으로 조회한다(조회 실패 시에만 공개 ID fallback).
 - 자체 검사: `powershell -File feedback.ps1 -SelfTest` → **15/15 PASS** (마스킹 10 + 안전검증 5).
   **v1.6.0**: SelfTest 결과(테스트 결과)·상태 파일·콘솔·`<BLOCKED:...>` 종류 이름이 시스템 언어를 따라갑니다.

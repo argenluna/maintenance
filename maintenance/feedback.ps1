@@ -12,7 +12,13 @@
 #      n/Enter(비동의) → 업로드하지 않고 파일을 바탕화면에 유지
 #  - 업로드 실패 시에도 파일을 유지한다(사용자가 직접 올릴 수 있게).
 #  - GitHub REST 는 Discussion 생성을 지원하지 않아(404) GraphQL 을 사용한다.
-#  - 토큰은 하드코딩하지 않는다: gh auth token → GH_TOKEN/GITHUB_TOKEN → 사용자 입력.
+#  - 토큰은 하드코딩하지 않는다: 인자 → GH_TOKEN/GITHUB_TOKEN → 배포본 동봉 토큰 파일
+#    → gh auth token → 사용자 입력.
+#  v1.14.1 (2026-11-21) 추가 — 배포본 동봉 피드백 전용 토큰
+#  - feedback.ps1 과 같은 폴더의 feedback-token.txt 를 읽어 자동 업로드에 사용.
+#    상대 PC는 토큰 입력 없이 y 한 번으로 업로드 완료.
+#  - 반드시 Discussions 쓰기 권한만 가진 최소 권한 토큰을 동봉할 것.
+#    (일반 repo/workflow 토큰을 넣으면 공개 ZIP 을 통해 저장소 전체가 유출된다.)
 #
 #  v1.5.0 안전/가시성 강화 (2026-11-18)
 #  - 업로드 전 악성코드·이상 코드 패턴을 검사하고 <BLOCKED:...> 로 치환한다.
@@ -275,6 +281,20 @@ function Get-GitHubToken {
     $v = [Environment]::GetEnvironmentVariable($name)
     if (-not [string]::IsNullOrWhiteSpace($v)) { return $v.Trim() }
   }
+
+  # v1.14.1: 배포본에 동봉된 피드백 전용 토큰 (디스커션 쓰기 권한만).
+  #gh auth token 보다 먼저 확인한다 — 일반 계정 토큰은 디스커션 권한이 없을 수 있다.
+  $bundled = Join-Path $PSScriptRoot 'feedback-token.txt'
+  if (Test-Path -LiteralPath $bundled) {
+    try {
+      $bt = ([IO.File]::ReadAllText($bundled, [Text.Encoding]::UTF8)).Trim()
+      # 자리표시자/주문/너무 짧은 값은 무시하고 아래 입력 단계로 넘어간다.
+      if ($bt.Length -ge 20 -and $bt -notmatch '^(YOUR_|PLACEHOLDER|#|//|여기에)') {
+        return $bt
+      }
+    } catch { }
+  }
+
   try {
     $fromGh = & gh auth token 2>$null
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($fromGh)) {
