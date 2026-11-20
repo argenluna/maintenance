@@ -3,14 +3,14 @@
 # 🪟 Windows 자동 유지보수 키트
 ### Windows Auto Maintenance Kit
 
-**최신 버전 v1.13.0** · 3단계 설치 · 6일마다 자동 점검 · 안전 우선 · 새 버전 알림
+**최신 버전 v1.14.0** · 3단계 설치 · 6일마다 자동 점검 · 안전 우선 · 새 버전 알림
 
 [![조회수](https://img.shields.io/badge/views-67-blue?style=flat-square&label=%EC%A1%B0%ED%9A%8C%EC%88%98)](https://github.com/argenluna/maintenance/graphs/traffic)
 [![다운로드](https://img.shields.io/github/downloads/argenluna/maintenance/total?style=flat-square&label=%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C&color=brightgreen)](https://github.com/argenluna/maintenance/releases)
 [![최신 버전](https://img.shields.io/github/v/release/argenluna/maintenance?label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&style=flat-square)](https://github.com/argenluna/maintenance/releases/latest)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows)
 ![라이선스](https://img.shields.io/badge/license-%EB%B9%84%EC%83%81%EC%97%85%EC%A0%81%C2%B7%EB%AC%B4%EC%95%85%EC%9A%A9-orange?style=flat-square)
-[![SHA-256 검증](https://img.shields.io/badge/SHA--256-verified-brightgreen?style=flat-square)](https://github.com/argenluna/maintenance/releases/tag/v1.13.0)
+[![SHA-256 검증](https://img.shields.io/badge/SHA--256-verified-brightgreen?style=flat-square)](https://github.com/argenluna/maintenance/releases/tag/v1.14.0)
 
 <br>
 
@@ -99,20 +99,20 @@ This kit does it **all at once, automatically, and safely**.
 **한국어**
 | 원칙 | 설명 |
 |---|---|
-| 자동 삭제 없음 | 임시 파일·캐시·휴지통도 목록을 보여주고 `y` 를 눌러야만 지웁니다. |
+| 자동 삭제 없음 (기본) | 임시 파일·캐시·휴지통도 목록을 보여주고 `y` 를 눌러야만 지웁니다. `A`를 누르면 그 항목만 이후 자동 삭제합니다(v1.14.0). |
 | 드라이버도 확인 후에만 | 오래된 드라이버는 30일마다 감지하고, 목록을 보여준 뒤 직접 실행에서 `y` 를 눌러야만 지웁니다. 사용 중·부팅 필수는 제외. |
 | 100MB 남아도 자동 삭제 금지 | 디스크가 거의 꽉 찼어도 사용자 파일을 실수로 지우지 않게 하려는 안전 장치입니다. |
-| 확인은 실행당 1회 | 삭제 확인 프롬프트는 한 번 실행에 한 번만 뜹니다. |
+| 확인은 단계마다 1회 | 삭제 확인은 임시 파일·캐시·휴지통 단계에서 각 한 번씩 `A/Y/N` 으로 묻습니다(v1.14.0). |
 | 위험한 명령 금지 | `w32tm /unregister` 같은 위험한 명령은 쓰지 않습니다. |
 | 사용자 파일 보호 | 사진·문서·다운로드·바탕화면 파일은 건드리지 않습니다. |
 
 **English**
 | Principle | Details |
 |---|---|
-| No automatic deletion | Even temp/cache/recycle-bin items are only removed after showing a list and requiring `y`. |
+| No automatic deletion (default) | Temp/cache/recycle-bin items need a list and `y`. Pressing `A` opts only that category into automatic cleanup later (v1.14.0). |
 | Old drivers need `y` too | Detected every 30 days; deleted only after `y` in an interactive run. In-use/boot-critical drivers are excluded. |
 | No auto-delete at 100MB free | Even when the disk is nearly full, user files are never auto-removed. |
-| One confirmation per run | The delete prompt appears at most once per execution. |
+| One prompt per stage | Delete confirmation asks `A/Y/N` once at each temp/cache/recycle-bin stage (v1.14.0). |
 | No dangerous commands | e.g. `w32tm /unregister` is never used. |
 | User files protected | Photos, documents, downloads, Desktop files are untouched. |
 
@@ -329,4 +329,4 @@ Unofficial personal tool, not affiliated with Microsoft or any vendor. It change
 
 ---
 
-© 2026 — Windows Auto Maintenance Kit v1.13.0
+© 2026 — Windows Auto Maintenance Kit v1.14.0

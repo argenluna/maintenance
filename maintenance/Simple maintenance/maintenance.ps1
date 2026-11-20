@@ -335,7 +335,14 @@ $defaults = @{
   # --- 삭제 전 확인 (2026-11-12 사용자 요청) ---
   #   파일을 지우기 전에 항상 목록을 보여주고 y 를 눌러야만 지운다.
   #   예약(자동) 실행은 물어볼 사람이 없으므로 아무것도 지우지 않고 보류만 기록한다.
-  #   ※ 이 확인을 끄는 설정은 없다(2026-11-12 사용자 지시: "y 를 눌러야만 삭제").
+  #   ※ 2026-11-20(v1.14.0)부터 A(언제나 삭제) 선택을 단계별로 기억할 수 있다.
+  #      A 는 사용자가 명시적으로 눌렀을 때만 저장되며, 저장된 경우에만 자동 삭제한다.
+  # --- v1.14.0: A(언제나 삭제) 기억 설정 ---
+  #   "A는 언제나 삭제 / Y는 현재 삭제 / N은 거부" (2026-11-20 사용자 요청)
+  #   true 이면 해당 단계에서 묻지 않고 지운다. 기본 false = 매번 묻는다.
+  tempAutoDelete           = $false   # 임시 폴더의 오래된 파일
+  browserCacheAutoDelete   = $false   # 브라우저 캐시 (30일 이상)
+  recycleAutoDelete        = $false   # 휴지통 (30일 이상)
   # --- 광고/추천 (2026-11-09 추가) ---
   #   Windows 11 은 기본값이 "광고 ON" 이라 새 PC/재설치 후 프로모션이 다시 나타난다.
   #   adQuiet 는 HKCU 값만 바꾸므로 관리자 없이도 되고, 전부 되돌릴 수 있다.
@@ -376,6 +383,7 @@ function Assert-ConfigSchema {
              'watchedTasks','watchedTaskMaxAgeDays',
              'adQuiet','adQuietKeepLockScreen','adQuietMutePromoToasts','adQuietDisableTipsTasks',
              'oldDriverCleanup','oldDriverCheckDays',
+              'tempAutoDelete','browserCacheAutoDelete','recycleAutoDelete',
              'adBlockEnabled','adBlockCategories','adBlockExtraDomains','adBlockAllowDomains','adBlockMaxDomains',
              'adDnsEnabled','adDnsServers')
   $types = @{ diskThresholdGB = [int]; tempDirs = [string[]]; servicesToCheck = [string[]]; restartServices = [string[]]; criticalServices = [string[]];
@@ -387,6 +395,7 @@ function Assert-ConfigSchema {
               tempMinAgeDays = [int]; tempCleanupMaxGB = [int];
               adQuiet = [bool]; adQuietKeepLockScreen = [bool]; adQuietMutePromoToasts = [bool]; adQuietDisableTipsTasks = [bool];
               oldDriverCleanup = [bool]; oldDriverCheckDays = [int];
+              tempAutoDelete = [bool]; browserCacheAutoDelete = [bool]; recycleAutoDelete = [bool];
               adBlockEnabled = [bool]; adBlockCategories = [string[]]; adBlockExtraDomains = [string[]]; adBlockAllowDomains = [string[]]; adBlockMaxDomains = [int];
               adDnsEnabled = [bool]; adDnsServers = [string[]] }
   foreach ($prop in $cfg.PSObject.Properties) {
@@ -435,6 +444,30 @@ function Get-Cfg([string]$key) {
   return $val
 }
 
+# v1.14.0: A(언제나 삭제) 선택을 config.json 에 영구 저장하고 메모리 설정도 갱신한다.
+#   저장에 실패하면 false 를 돌려 "이번 실행만 삭제"로 처리한다(설정 오류 때문에 삭제 자체가 막히지 않게).
+function Set-CfgBool {
+  param(
+    [Parameter(Mandatory = $true)][string]$Key,
+    [Parameter(Mandatory = $true)][bool]$Value
+  )
+  try {
+    $cfgObj = $null
+    if (Test-Path -LiteralPath $configPath) {
+      $cfgObj = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    if (-not $cfgObj) { $cfgObj = New-Object PSObject }
+    $cfgObj | Add-Member -Force -NotePropertyName $Key -NotePropertyValue $Value
+    $cfgObj | ConvertTo-Json -Depth 6 | Out-File -LiteralPath $configPath -Encoding UTF8 -Force
+    if ($null -eq $config) { $config = $cfgObj }
+    else { $config | Add-Member -Force -NotePropertyName $Key -NotePropertyValue $Value }
+    return $true
+  } catch {
+    Write-LogEntry "Delete Review: WARN - '$Key' 설정 저장 실패: $($_.Exception.Message)"
+    return $false
+  }
+}
+
 # IPv4 리터럴 검증: 999.999.999.999 같은 형식만 맞는 값도 거른다.
 function Test-IPv4Literal {
   param([string]$Value)
@@ -473,40 +506,16 @@ if ($PromptForDelete) {
 }
 
 # ------------------------------------------------------------
-# 삭제 확인은 **한 번만** (2026-11-16 사용자 요청)
-#   "삭제를 한다고 Y를 누르면 전부 한 번에 지워져야 하는데, 항목마다 '삭제하시겠습니까?'
-#    계속 물어보는 게 너무 귀찮다."
-#   이전: 삭제 목록이 4종(임시 폴더·브라우저 캐시·휴지통·지난 결과 파일)이라 최대 4번 물었다.
-#   지금: 시작할 때 한 번만 묻고, 그 결정을 이번 실행의 모든 삭제 목록에 그대로 적용한다.
-#     - y = 모두 지움 (목록·용량은 각 단계에서 그대로 보여준다. 묻지는 않는다)
-#     - n/Enter = 모두 그대로 (안전 기본값)
-#     - s = 항목마다 따로 묻기 (예전 동작이 필요할 때만)
-#   ⚠ 결정과 무관하게 "y 를 받기 전에는 지우지 않는다"는 원칙은 그대로다(예약 실행은 항상 보류).
+# 삭제 확인은 **단계마다 한 번** (2026-11-20, v1.14.0 사용자 요청)
+#   "임시파일 및 휴지통 삭제할 때 A 를 추가해. A는 언제나 삭제, Y는 현재 삭제, N은 거부."
+#   임시 폴더 / 브라우저 캐시 / 휴지통 단계에서 목록을 보여주고 A/Y/N 을 묻는다.
+#     - A = 해당 단계의 config 키를 true 로 저장 → 다음 실행부터 묻지 않고 자동 삭제
+#     - Y = 이번 실행에서만 삭제 (설정은 바뀌지 않음)
+#     - N 또는 Enter = 거부 (기본값)
+#   ⚠ 자동 삭제는 사용자가 A 를 명시적으로 눌러 저장한 경우에만 동작한다.
+#     저장된 A 가 없는 예약 실행은 여전히 아무것도 지우지 않는다.
+#     (지난 결과 파일 3개월 자동 삭제는 별개 — v1.4.0 사용자 요청)
 # ------------------------------------------------------------
-$script:deletePolicy = 'each'   # each | all | none
-$script:deleteAnswer = ''
-if ($script:askDelete) {
-  Write-Host ''
-  Write-Host '  =================================================='
-  Write-Host '   [삭제 확인] 이번 점검에서 지울 수 있는 항목'
-  Write-Host '  =================================================='
-  Write-Host '    · 임시 폴더의 오래된 파일 (디스크 여유가 부족할 때만)'
-  Write-Host '    · 브라우저 캐시 (30일 이상)'
-  Write-Host '    · 휴지통 (30일 이상 지난 파일)'
-  Write-Host '  ※ 지난 유지보수 결과 파일은 묻지 않고 3개월(90일)이 지나면 자동으로 지웁니다.'
-  Write-Host '  실제 목록과 용량은 각 단계에서 보여드립니다. (지울 파일이 없으면 아무것도 지우지 않습니다)'
-  try { $script:deleteAnswer = Read-Host '  한 번에 모두 지울까요? (y = 모두 지움 / n 또는 Enter = 모두 그대로 / s = 항목마다 따로 묻기)' } catch { $script:deleteAnswer = '' }
-  if ("$($script:deleteAnswer)" -match '^\s*(y|yes|예|ㅇ|1)\s*$') { $script:deletePolicy = 'all' }
-  elseif ("$($script:deleteAnswer)" -match '^\s*(s|sel|각|따로)\s*$') { $script:deletePolicy = 'each' }
-  else { $script:deletePolicy = 'none' }
-  $policyText = switch ($script:deletePolicy) {
-    'all'  { '모두 지움 — 아래 단계에서 목록만 보여주고 바로 지웁니다' }
-    'each' { '항목마다 따로 묻기 — 단계마다 y/N 을 물어봅니다' }
-    default { '모두 그대로 — 이번 실행에서는 아무것도 지우지 않습니다' }
-  }
-  Write-Host "  → 선택: $policyText"
-  Write-Host ''
-}
 
 function Format-ByteSize([double]$Bytes) {
   if ($Bytes -ge 1GB) { return ('{0:0.00}GB' -f ($Bytes / 1GB)) }
@@ -538,7 +547,9 @@ function Invoke-DeleteReview {
     [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Items,
     [scriptblock]$DeleteAction = $null,
     [int]$ShowMax = 20,
-    [AllowEmptyCollection()][string[]]$Notice = @()
+    [AllowEmptyCollection()][string[]]$Notice = @(),
+    # v1.14.0: A(언제나 삭제) 선택을 저장할 config 키. 비우면 A 저장 없이 Y/N 만 묻는다.
+    [string]$PolicyKey = ''
   )
 
   $list = @($Items)
@@ -574,35 +585,57 @@ function Invoke-DeleteReview {
   $pathsMore = $list.Count - $paths.Count
   if ($pathsMore -lt 0) { $pathsMore = 0 }
 
-  # --- 결정: 사용자 y / 사용자 n / 보류(물어볼 사람 없음) ---
-  #   ⚠ 디스크가 아무리 부족해도(100MB 라도) 자동으로 지우지 않는다. y 를 눌렀을 때만 지운다.
-  #   2026-11-16: 시작할 때 받은 한 번의 결정($script:deletePolicy)을 그대로 적용한다.
-  #     all/none 이면 목록만 보여주고 묻지 않는다(항목마다 묻던 불편 제거).
+  # --- 결정: 설정에 기억된 A / 사용자 A·Y·N / 보류(물어볼 사람 없음) ---
+  #   v1.14.0 (2026-11-20): "A는 언제나 삭제 / Y는 현재 삭제 / N은 거부"
+  #     - A : config 에 true 저장 → 이후 실행(예약 포함)에서 묻지 않고 삭제
+  #     - Y : 이번 실행만 삭제
+  #     - N : 거부 (기본값)
+  #   저장된 A 가 없으면 예약 실행은 여전히 보류(아무것도 지우지 않음).
   $decision = 'deferred'
-  if ($script:askDelete) {
-    $policy = [string]$script:deletePolicy
+  $always = $false
+  $answerA = $false
+  if (-not [string]::IsNullOrWhiteSpace($PolicyKey)) { $always = [bool](Get-Cfg $PolicyKey) }
+  if ($always) {
+    Write-Host ''
+    Write-TestHeader ("[삭제 확인] {0} — {1}개 / {2}" -f $Target, $list.Count, $sizeText)
+    Write-Host (L '  → A(언제나 삭제)가 설정에 저장되어 있어 묻지 않고 지웁니다.' '  -> "Always delete" (A) is saved in config; deleting without asking.')
+    Write-LogEntry (L "Delete Review: 설정의 A에 따라 자동 삭제 — $Target" "Delete Review: auto-deleted by saved A - $Target")
+    $decision = 'yes'
+  } elseif ($script:askDelete) {
     Write-Host ''
     Write-TestHeader ("[삭제 확인] {0} — {1}개 / {2}" -f $Target, $list.Count, $sizeText)
     foreach ($n in @($Notice)) { if (-not [string]::IsNullOrWhiteSpace($n)) { Write-Host "  $n" } }
-    Write-Host '  지우려는 목록:'
+    Write-Host (L '  지우려는 목록:' '  Files to delete:')
     foreach ($p in $preview) { Write-Host "    · $p" }
     if ($moreCount -gt 0) { Write-Host "    · ... 외 $moreCount 개" }
-    if ($policy -eq 'all') {
-      Write-Host '  → 앞에서 한 번에 승인하셨으므로 바로 지웁니다.'
+    $ans = ''
+    try {
+      $ans = Read-Host (L '  A = 언제나 삭제(설정에 기억) / Y = 현재만 삭제 / N 또는 Enter = 거부' '  A = always delete (save to config) / Y = delete this time only / N or Enter = keep')
+    } catch { $ans = '' }
+    if ("$ans" -match '^\s*(a|all|언제나|항상)\s*$') {
+      $answerA = $true
+      $saved = $true
+      if (-not [string]::IsNullOrWhiteSpace($PolicyKey)) { $saved = Set-CfgBool -Key $PolicyKey -Value $true }
+      if ($saved) {
+        Write-Host (L '  → A: 앞으로 이 항목은 묻지 않고 자동 삭제합니다. (설정에 저장됨)' '  -> A: this item will be deleted automatically from now on (saved).')
+      } else {
+        Write-Host (L '  → A: 설정 저장에 실패했지만 이번 실행에서는 삭제합니다.' '  -> A: could not save the setting, but deleting this run anyway.')
+      }
       $decision = 'yes'
-    } elseif ($policy -eq 'none') {
-      Write-Host '  → 앞에서 "모두 그대로"를 선택하셨으므로 지우지 않습니다.'
-      $decision = 'no'
+    } elseif ("$ans" -match '^\s*(y|yes|예|ㅇ|1)\s*$') {
+      $decision = 'yes'   # Y = 현재만. 설정은 바꾸지 않는다.
     } else {
-      $ans = ''
-      try { $ans = Read-Host '  삭제하시겠습니까? (y = 삭제 / N 또는 Enter = 그대로 두기)' } catch { $ans = '' }
-      if ("$ans" -match '^\s*(y|yes|예|ㅇ|1)\s*$') { $decision = 'yes' } else { $decision = 'no' }
+      $decision = 'no'
     }
   }
 
   $decisionText = switch ($decision) {
-    'yes'  { if ([string]$script:deletePolicy -eq 'all') { L '지움 (앞에서 한 번에 승인)' 'Deleted (approved earlier for all)' } else { L '지움 (사용자가 y 선택)' 'Deleted (user chose y)' } }
-    'no'   { if ([string]$script:deletePolicy -eq 'none') { L '그대로 둠 (앞에서 한 번에 보류)' 'Left as-is (skipped earlier for all)' } else { L "그대로 둠 (사용자가 '아니오' 선택)" 'Left as-is (user chose No)' } }
+    'yes'  {
+      if ($always) { L '지움 (A — 설정에 기억된 자동 삭제)' 'Deleted (A - remembered auto-delete)' }
+      elseif ($answerA) { L '지움 (A — 언제나 삭제 선택)' 'Deleted (A - always delete chosen)' }
+      else { L '지움 (Y — 현재만 삭제)' 'Deleted (Y - this time only)' }
+    }
+    'no'   { L '그대로 둠 (N — 거부)' 'Left as-is (N - rejected)' }
     default { L '그대로 둠 (자동 실행 — 물어볼 사람이 없어 보류)' 'Left as-is (automatic run - nobody to ask, deferred)' }
   }
 
@@ -2063,7 +2096,7 @@ try {
               $notice += '여유 공간을 조금 확보하려고 오래된 임시 파일부터 정리하려고 합니다.'
             }
             $notice += '필요한 자료가 있으시면 백업을 하세요.'
-            $approved = Invoke-DeleteReview -Target "임시 폴더 ($($chk.Path))" -Items $dumpCands -Notice $notice -DeleteAction {
+            $approved = Invoke-DeleteReview -Target "임시 폴더 ($($chk.Path))" -Items $dumpCands -Notice $notice -PolicyKey 'tempAutoDelete' -DeleteAction {
               foreach ($c in $dumpCands) { try { Remove-Item -LiteralPath $c.Name -Force -ErrorAction SilentlyContinue } catch { } }
             }
             if ($approved) {
@@ -2994,7 +3027,7 @@ try {
   }
   if ($cacheCands.Count -gt 0) {
     $dumpCands = $cacheCands
-    $approved = Invoke-DeleteReview -Target '브라우저 캐시 (30일 이상)' -Items $dumpCands -DeleteAction {
+    $approved = Invoke-DeleteReview -Target '브라우저 캐시 (30일 이상)' -Items $dumpCands -PolicyKey 'browserCacheAutoDelete' -DeleteAction {
       foreach ($c in $dumpCands) { try { Remove-Item -LiteralPath $c.Name -Force -ErrorAction SilentlyContinue } catch { } }
     }
     if ($approved) {
@@ -3674,7 +3707,7 @@ try {
   }
   if ($rbCands.Count -gt 0) {
     $sizeMB = [math]::Round((($rbCands | Measure-Object -Property Size -Sum).Sum) / 1MB, 1)
-    $approved = Invoke-DeleteReview -Target '휴지통 (30일 이상 지난 파일)' -Items $rbCands -DeleteAction {
+    $approved = Invoke-DeleteReview -Target '휴지통 (30일 이상 지난 파일)' -Items $rbCands -PolicyKey 'recycleAutoDelete' -DeleteAction {
       foreach ($c in $rbCands) { try { $c.Item.InvokeVerb('delete') } catch { } }
     }
     if ($approved) {
@@ -5439,6 +5472,11 @@ $script:reportEnglishMap = [ordered]@{
   '그대로 둠 (앞에서 한 번에 보류)' = 'Left as-is (skipped earlier for all)'
   "그대로 둠 (사용자가 '아니오' 선택)" = 'Left as-is (user chose No)'
   '그대로 둠 (자동 실행 — 물어볼 사람이 없어 보류)' = 'Left as-is (automatic run - nobody to ask, deferred)'
+  # v1.14.0: A/Y/N 결정 문구
+  '지움 (A — 설정에 기억된 자동 삭제)' = 'Deleted (A - remembered auto-delete)'
+  '지움 (A — 언제나 삭제 선택)' = 'Deleted (A - always delete chosen)'
+  '지움 (Y — 현재만 삭제)' = 'Deleted (Y - this time only)'
+  '그대로 둠 (N — 거부)' = 'Left as-is (N - rejected)'
   ' (기록 한도 ' = ' (record limit '
   '개 초과)' = ' exceeded)'
   '삭제 기록 파일: ' = 'Deletion record file: '
