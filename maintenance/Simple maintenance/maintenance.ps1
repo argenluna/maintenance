@@ -2655,7 +2655,7 @@ try {
     Write-LogEntry 'SecureBoot: WARN - Secure Boot 비활성'
     # 2026-11-16: 게임 안티치트(Vanguard)는 Windows 11 에서 Secure Boot + TPM 2.0 을 요구한다.
     #   친구 PC(2026-11-15)가 Secure Boot 비활성 + Vanguard 게임을 쓰고 있어, 왜 켜야 하는지까지 적는다.
-    $recommendations += '[SecureBoot] BIOS/UEFI 설정에서 Secure Boot를 켜세요 (부팅 무결성 보호). 리그 오브 레전드·발로란트 등 일부 게임(안티치트 Vanguard)은 Windows 11 에서 Secure Boot + TPM 2.0 이 필요합니다.'
+    $recommendations += '[SecureBoot] BIOS/UEFI 설정에서 Secure Boot를 켜세요 (부팅 무결성 보호). 리그 오브 레전드·발로란트 등 일부 게임(안티치트 Vanguard)은 Windows 11 에서 Secure Boot + TPM 2.0 이 필요합니다. UEFI CA 2023 갱신도 미완료라면 최신 누적 업데이트 설치 후 재부팅 2회 필요.'
   }
 
   try {
@@ -5313,7 +5313,7 @@ try { Add-Content -Path $logPath -Value '[SUMMARY_END]' -Encoding UTF8 } catch {
 # ============================================================
 $script:reportEnglishMap = [ordered]@{
   'Windows 정품 인증이 필요합니다 (설정 > 시스템 > 정품 인증). 미인증 시 보안 업데이트가 중단됩니다.' = 'Windows is not activated (Settings > System > Activation). Security updates are paused until activated.'
-  'BIOS/UEFI 설정에서 Secure Boot를 켜세요 (부팅 무결성 보호). 리그 오브 레전드·발로란트 등 일부 게임(안티치트 Vanguard)은 Windows 11 에서 Secure Boot + TPM 2.0 이 필요합니다.' = 'Enable Secure Boot in BIOS/UEFI (boot integrity protection). Some games (e.g. Vanguard anti-cheat) require Secure Boot + TPM 2.0 on Windows 11.'
+  'BIOS/UEFI 설정에서 Secure Boot를 켜세요 (부팅 무결성 보호). 리그 오브 레전드·발로란트 등 일부 게임(안티치트 Vanguard)은 Windows 11 에서 Secure Boot + TPM 2.0 이 필요합니다. UEFI CA 2023 갱신도 미완료라면 최신 누적 업데이트 설치 후 재부팅 2회 필요.' = 'Enable Secure Boot in BIOS/UEFI (boot integrity protection). Some games (e.g. Vanguard anti-cheat) require Secure Boot + TPM 2.0 on Windows 11. If UEFI CA 2023 renewal is also pending, install the latest cumulative update and reboot twice.'
   'TPM이 준비되지 않았습니다. BIOS에서 fTPM/PTT를 켜고 tpm.msc 에서 상태를 확인하세요.' = 'TPM is not ready. Enable fTPM/PTT in BIOS and check status in tpm.msc.'
   'WinRE BCD 등록이 손상되었습니다. 관리자 PowerShell에서 reagentc /disable 후 /enable 로 재등록하세요.' = 'WinRE BCD registration is damaged. In admin PowerShell, run reagentc /disable then /enable.'
   '관리자 PowerShell에서 winmgmt /resetrepository 실행 후 재부팅 (마지막 수단)' = 'As a last resort, run winmgmt /resetrepository in admin PowerShell and reboot.'

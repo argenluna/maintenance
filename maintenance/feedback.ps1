@@ -450,6 +450,24 @@ try {
   exit 1
 }
 
+# --- v1.14.5: 보낸 PC 식별 정보 ---
+# 공개 Discussion이므로 머신 GUID 원본은 절대 넣지 않고 SHA-256 앞 6자리만 사용한다.
+$pcGuid = ''
+try { $pcGuid = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid } catch { }
+$pcTag = if (-not [string]::IsNullOrWhiteSpace([string]$pcGuid)) {
+  $digest = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes([string]$pcGuid))
+  'PC-' + ([BitConverter]::ToString($digest).Replace('-', '').Substring(0, 6))
+} else { 'PC-Unknown' }
+
+$cpuName = ''
+try { $cpuName = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim() } catch { }
+$gpuName = ''
+try {
+  $gpuName = (Get-CimInstance Win32_VideoController |
+    Where-Object { $_.Name -notmatch 'Virtual|Meta|Mirror|Microsoft Basic' } |
+    Select-Object -First 1).Name.Trim()
+} catch { }
+
 # 1) 개인정보 마스킹 → 2) 악성/이상 코드 검증
 $masked = ConvertTo-MaskedText -Text $raw
 $safety = Sanitize-FeedbackText -Text $masked
@@ -469,6 +487,13 @@ $out += (L "생성: $createdAt" "Created: $createdAt")
 $out += (L "키트 버전: $ver" "Kit version: $ver")
 $out += (L "원본 결과: $($source.Name)  ($($source.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))" "Source result: $($source.Name)  ($($source.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))")
 $out += (L "안전 검증: 위험 패턴 $blockedCount 건 제거  [$blockedKinds]" "Safety check: $blockedCount risky pattern(s) removed  [$blockedKinds]")
+$out += ''
+$out += '------------------------------------------'
+$out += (L '[ 보낸 PC — 같은 PC에서 들어온 보고서 구분용 ]' '[ Sending PC — distinguishes reports from different machines ]')
+$out += '------------------------------------------'
+$out += (L "식별자: $pcTag  (머신 GUID 원본은 올리지 않고 해시 앞 6자리만 사용)" "ID: $pcTag  (raw Machine GUID is never uploaded - first 6 hash chars only)")
+$out += (L "CPU: $cpuName" "CPU: $cpuName")
+$out += (L "GPU: $gpuName" "GPU: $gpuName")
 $out += ''
 $out += (L '[ 올리기 전에 - 30초만 확인해 주세요 ]' '[ Before posting - please review for 30 seconds ]')
 $out += (L ' 1. 이 파일은 민감정보와 위험 코드를 자동으로 지웠습니다. 그래도 한 번 훑어보세요.' ' 1. Sensitive info and risky code were removed automatically. Please still give it a quick look.')
@@ -515,7 +540,24 @@ $out += ''
 $out += '------------------------------------------'
 $out += (L '[ 마스킹된 점검 결과 ]' '[ Masked check result ]')
 $out += '------------------------------------------'
-$out += $safeText
+# v1.14.5: 상세 로그는 GitHub에서 접히도록 <details> 로 감싼다 (본문 길이 제한·가독성).
+$detailMarker = if ($kitLang -eq 'ko') { '--- 상세 로그' } else { '--- Detailed log' }
+$detailIdx = $safeText.IndexOf($detailMarker)
+if ($detailIdx -gt 0) {
+  $summaryPart = $safeText.Substring(0, $detailIdx).TrimEnd()
+  $detailPart = $safeText.Substring($detailIdx)
+  $out += $summaryPart
+  $out += ''
+  $out += (L '<details><summary>상세 로그 (기술적 상세 — 펼쳐서 보기)</summary>' '<details><summary>Detailed log (technical details - expand to view)</summary>')
+  $out += ''
+  $out += '```text'
+  $out += $detailPart
+  $out += '```'
+  $out += ''
+  $out += '</details>'
+} else {
+  $out += $safeText
+}
 $out += ''
 $out += '------------------------------------------'
 $out += (L '[ 내 한 줄 ]   <-- 여기에 직접 써주세요' '[ My one line ]   <-- write here yourself')
@@ -588,7 +630,8 @@ if ($NoUpload) {
       if ($bodyText.Length -gt 60000) {
         $bodyText = $bodyText.Substring(0, 60000) + (L "`r`n...(본문이 길어 뒤는 잘렸습니다)" "`r`n...(truncated: body too long)")
       }
-      $title = "[피드백/Feedback] $ver - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+      $deviceLabel = if ($gpuName) { $gpuName } else { $pcTag }
+  $title = "[피드백/Feedback] $ver ($deviceLabel) - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 
       if ($DryRun) {
         Write-Host (L '[DryRun] 실제 업로드는 하지 않습니다.' '[DryRun] No actual upload is performed.')
