@@ -48,6 +48,7 @@ param(
   [switch]$NoOpen,
   [switch]$NoUpload,
   [switch]$Yes,
+  [switch]$NoPause,
   [switch]$DryRun,
   [switch]$SelfTest,
   [string]$ResultPath = '',
@@ -414,6 +415,7 @@ function Get-LatestResultFile {
       Where-Object {
         ($_.Name -like '자동유지보수_*.txt' -or $_.Name -like 'auto-maintenance_*.txt') -and
         $_.Name -notlike '자동유지보수_피드백_*' -and $_.Name -notlike '자동유지보수_피드백상태*' -and
+        $_.Name -notlike '자동유지보수_업데이트상태*' -and $_.Name -notlike 'auto-maintenance_update-status*' -and
         $_.Name -notlike 'auto-maintenance_feedback_*'
       } |
       Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -678,4 +680,6 @@ if (-not $uploaded -and -not $NoOpen -and -not $openedForReview) {
 
 Write-Host ''
 Write-Host (L "실행 결과 상세: $statusPath" "Run result details: $statusPath")
-Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close')
+# v1.14.8: -Yes(자동 업로드) 또는 -NoPause(예약 실행)에서는 Enter 대기를 하지 않는다.
+#   창이 없는 예약 실행에서 Read-Host 가 블록되면 자동 업로드가 끝나지 않는다.
+if (-not $Yes -and -not $NoPause -and -not $DryRun) { Read-Host (L 'Enter 키를 누르면 닫힙니다' 'Press Enter to close') }

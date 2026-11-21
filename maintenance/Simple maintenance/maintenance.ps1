@@ -6113,7 +6113,7 @@ Write-Output (L '--------------------------------------------------' '----------
 Write-Output (L '검사가 끝났습니다.' 'Check finished.')
 Write-Output (L '의견을 남기시고 싶으면 바탕화면의 "자동 유지보수 피드백"을 실행해 보고서와 함께 기능 추가·개선 방향을 남겨주세요.' 'To leave a comment, run "Auto Maintenance Feedback" on your Desktop and write feature requests or improvements along with the report.')
 Write-Output (L '보내주신 의견은 기능 개선과 문제 수정에 큰 도움이 됩니다. 아래 선택은 보고서를 GitHub 에 바로 올립니다.' 'Your comments help improve features and fix problems. The choice below uploads the report to GitHub right away.')
-Write-Output (L '  A 를 한 번 누르면 앞으로 질문 없이 점검 끝날 때마다 자동으로 올라갑니다. (예약 실행은 올리지 않습니다)' '  Press A once and future checks upload automatically with no question. (Scheduled runs never upload)')
+Write-Output (L '  A 를 한 번 누르면 앞으로 질문 없이 점검 끝날 때마다 자동으로 올라갑니다. (예약 실행도 자동 업로드)' '  Press A once and future checks upload automatically with no question. (Scheduled runs also upload)')
 
 function Invoke-FeedbackUpload {
   $fb = Join-Path (Split-Path -Parent $scriptRoot) 'feedback.ps1'
@@ -6123,7 +6123,7 @@ function Invoke-FeedbackUpload {
   }
   Write-Output (L '피드백을 자동으로 보냅니다... (토큰 입력 불필요)' 'Sending feedback automatically... (no token entry needed)')
   try {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fb -Yes -NoOpen 2>&1 | ForEach-Object { Write-Output $_ }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fb -Yes -NoOpen -NoPause 2>&1 | ForEach-Object { Write-Output $_ }
     Write-Output (L '피드백 전송 요청이 끝났습니다. 결과는 바탕화면 "자동유지보수_피드백상태.txt" 에도 기록됩니다.' 'Feedback upload finished. See "자동유지보수_피드백상태.txt" on the Desktop for the result.')
   } catch {
     Write-Output ((L '피드백 전송 실패: ' 'Feedback upload failed: ') + $_.Exception.Message)
@@ -6147,28 +6147,28 @@ function Save-AutoFeedbackSetting {
   }
 }
 
-# v1.14.7: 바탕화면 "지금 점검"(-PromptForDelete 포함)에서도 선택창이 뜨도록 확대.
-#   진짜 예약 실행은 $script:canPromptUser 가 false 라서 아무것도 묻지 않고 올리지도 않는다.
-if ($script:canPromptUser) {
-  $fbMode = [string](Get-ConfigProp $config 'autoFeedback')
-  if ($fbMode -eq 'always') {
-    Write-Output (L '자동 피드백 설정이 켜져 있습니다.' 'Automatic feedback is enabled.')
+# v1.14.8: A 로 한 번 켜면(autoFeedback='always') 예약 실행에서도 자동 업로드한다.
+#   - 자동 업로드 자체는 canPromptUser 게이트 밖에서 처리한다.
+#   - 질문(A/Y/N)은 사람이 창을 보고 있을 때만(canPromptUser) 띄운다.
+#   - 예약 실행은 질문이 없고, 설정이 always 일 때만 조용히 올린다.
+$fbMode = [string](Get-ConfigProp $config 'autoFeedback')
+if ($fbMode -eq 'always') {
+  Write-Output (L '자동 피드백 설정이 켜져 있습니다. (예약 실행도 자동 업로드)' 'Automatic feedback is enabled. (Scheduled runs also upload)')
+  Invoke-FeedbackUpload
+} elseif ($script:canPromptUser) {
+  Write-Output ''
+  Write-Output (L '피드백을 보내시겠습니까?' 'Send feedback?')
+  Write-Output (L '  A = 항상 자동 보내기 / Y = 이번만 보내기 / N = 보내지 않기 (기본 N)' '  A = always send / Y = send this time / N = do not send (default N)')
+  try {
+    $fbAnswer = (Read-Host (L '선택 [A/Y/N]' 'Choice [A/Y/N]')).Trim().ToUpperInvariant()
+  } catch { $fbAnswer = '' }
+  if ($fbAnswer -eq 'A') {
+    Save-AutoFeedbackSetting -Value 'always'
+    Invoke-FeedbackUpload
+  } elseif ($fbAnswer -eq 'Y') {
     Invoke-FeedbackUpload
   } else {
-    Write-Output ''
-    Write-Output (L '피드백을 보내시겠습니까?' 'Send feedback?')
-    Write-Output (L '  A = 항상 자동 보내기 / Y = 이번만 보내기 / N = 보내지 않기 (기본 N)' '  A = always send / Y = send this time / N = do not send (default N)')
-    try {
-      $fbAnswer = (Read-Host (L '선택 [A/Y/N]' 'Choice [A/Y/N]')).Trim().ToUpperInvariant()
-    } catch { $fbAnswer = '' }
-    if ($fbAnswer -eq 'A') {
-      Save-AutoFeedbackSetting -Value 'always'
-      Invoke-FeedbackUpload
-    } elseif ($fbAnswer -eq 'Y') {
-      Invoke-FeedbackUpload
-    } else {
-      Write-Output (L '피드백을 보내지 않습니다. 의견이 있으면 바탕화면의 "자동 유지보수 피드백"을 눌러주세요.' 'Feedback skipped. Use "Auto Maintenance Feedback" on the Desktop if you have comments.')
-    }
+    Write-Output (L '피드백을 보내지 않습니다. 의견이 있으면 바탕화면의 "자동 유지보수 피드백"을 눌러주세요.' 'Feedback skipped. Use "Auto Maintenance Feedback" on the Desktop if you have comments.')
   }
 }
 
