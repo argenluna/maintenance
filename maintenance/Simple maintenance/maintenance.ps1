@@ -6213,6 +6213,9 @@ Write-Output (L '--------------------------------------------------' '----------
 Write-Output (L '검사가 끝났습니다.' 'Check finished.')
 Write-Output (L '의견을 남기시고 싶으면 바탕화면의 "자동 유지보수 피드백"을 실행해 보고서와 함께 기능 추가·개선 방향을 남겨주세요.' 'To leave a comment, run "Auto Maintenance Feedback" on your Desktop and write feature requests or improvements along with the report.')
 Write-Output (L '보내주신 의견은 기능 개선과 문제 수정에 큰 도움이 됩니다. 아래 선택은 보고서를 GitHub 에 바로 올립니다.' 'Your comments help improve features and fix problems. The choice below uploads the report to GitHub right away.')
+# v1.15.2: 개인정보 보호 범위 + 후속 수정 안내
+Write-Output (L '오류 확인용으로 CPU 모델과 GPU 모델만 올라갑니다. 이름·경로·시리얼·IP 등 개인정보는 자동으로 지웁니다. (보고서 구분용 해시 앞 6자리 포함)' 'Only CPU and GPU models are uploaded for diagnosis. Names, paths, serial numbers, IPs and other personal info are removed automatically (plus a 6-char report ID).')
+Write-Output (L '보내주신 문제는 대부분 다음 버전에서 수정됩니다.' 'Most issues you report are fixed in the next version.')
 Write-Output (L '  A 를 한 번 누르면 앞으로 질문 없이 점검 끝날 때마다 자동으로 올라갑니다. (예약 실행도 자동 업로드)' '  Press A once and future checks upload automatically with no question. (Scheduled runs also upload)')
 
 function Invoke-FeedbackUpload {

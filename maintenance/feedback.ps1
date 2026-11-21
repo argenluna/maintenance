@@ -504,6 +504,10 @@ if ($safeText -match '\[\s*초보자용 결과표\s*\]|\[\s*Easy-to-read results
   $out += ''
 }
 $out += (L '[ 올리기 전에 - 30초만 확인해 주세요 ]' '[ Before posting - please review for 30 seconds ]')
+# v1.15.2: 개인정보 보호 범위 + 후속 수정 안내 (콘선 동의 질문 앞에도 같이 표시한다).
+$out += (L '★ 오류 확인용으로 CPU 모델과 GPU 모델만 올라갑니다. 이름·경로·시리얼·IP 등 개인정보는 자동으로 지웁니다. (보고서 구분용 해시 앞 6자리 포함)' '★ Only CPU and GPU models are uploaded for diagnosis. Names, paths, serial numbers, IPs and other personal info are removed automatically (a 6-char hash is included to tell reports apart).')
+$out += (L '★ 보내주신 문제는 대부분 다음 버전에서 수정됩니다.' '★ Most issues you report are fixed in the next version.')
+$out += ''
 $out += (L ' 1. 이 파일은 민감정보와 위험 코드를 자동으로 지웠습니다. 그래도 한 번 훑어보세요.' ' 1. Sensitive info and risky code were removed automatically. Please still give it a quick look.')
 $out += (L '    (하드웨어 모델명/드라이버 버전은 진단용으로 남아 있습니다. 민감하면 지우세요.)' '    (Hardware model/driver versions are kept for diagnosis. Delete them if sensitive.)')
 $out += (L ' 2. 동의(y)하면 이 내용이 GitHub Discussion 에 자동으로 올라갑니다.' ' 2. If you consent (y), this is uploaded to a GitHub Discussion automatically.')
@@ -618,6 +622,9 @@ if ($NoUpload) {
     catch { Write-Host (L '(미리보기 실행 실패 - 위 경로의 파일을 직접 여세요)' '(Could not open preview - open the file at the path above manually)') }
     Write-Host (L '메모장에서 내용을 확인한 뒤 아래 질문에 답해주세요.' 'Review the content in Notepad, then answer below.')
   }
+  # v1.15.2: 파일을 열지 않아도 동의 질문 전에 개인정보 범위/후속 수정 안내를 본다.
+  Write-Host (L '[개인정보] 오류 확인용으로 CPU 모델·GPU 모델만 올라갑니다. 이름·경로·시리얼·IP 등은 자동으로 지웁니다. (구분용 해시 6자리 포함)' '[Privacy] Only CPU/GPU models are uploaded for diagnosis. Names, paths, serial numbers and IPs are removed automatically (plus a 6-char report ID).')
+  Write-Host (L '[수정 안내] 보내주신 문제는 대부분 다음 버전에서 수정됩니다.' '[Next version] Most issues you report are fixed in the next version.')
   $consent = $false
   if ($Yes) {
     $consent = $true
