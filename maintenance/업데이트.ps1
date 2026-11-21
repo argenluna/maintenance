@@ -37,6 +37,15 @@ function Test-UpdAdmin {
 }
 function Show-UpdBox {
   param([string]$Text, [string]$Caption = '업데이트')
+  # 예약 실행(-NoPause)에서는 메시지 상자가 프로세스를 멈추게 하므로 상태 파일에 기록한다.
+  if ($NoPause) {
+    try {
+      $status = Join-Path ([Environment]::GetFolderPath('Desktop')) '자동유지보수_업데이트상태.txt'
+      [IO.File]::WriteAllText($status, ("[{0}] {1}`r`n{2}`r`n" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Caption, $Text), (New-Object System.Text.UTF8Encoding($false)))
+    } catch { }
+    Write-Host $Text
+    return
+  }
   try {
     Add-Type -AssemblyName System.Windows.Forms
     [System.Windows.Forms.MessageBox]::Show($Text, $Caption, 'OK', 'Information') | Out-Null
@@ -70,9 +79,18 @@ Write-Host '   자동 유지보수 업데이트'
 Write-Host '=========================================='
 Write-Host ''
 
+# 먼저 릴리스 조회 자체가 되는지 확인한다(Get-UpdateInfo 는 "새 버전 없음"도 $null 로 반환한다).
+$rels = @()
+try { $rels = @(Get-GitHubReleases -TimeoutSec 25) } catch { }
+if ($rels.Count -eq 0) { Fail-Upd 'GitHub에서 새 버전 정보를 가져오지 못했습니다. 인터넷 연결을 확인하세요.' }
 $upd = $null
 try { $upd = Get-UpdateInfo -Root $root -TimeoutSec 25 } catch { }
-if ($null -eq $upd) { Fail-Upd 'GitHub에서 새 버전 정보를 가져오지 못했습니다. 인터넷 연결을 확인하세요.' }
+if ($null -eq $upd) {
+  $cur = Get-KitVersionValue -Root $root
+  Show-UpdBox "이미 최신 버전입니다 (v$cur)." '업데이트 불필요'
+  Write-Host "이미 최신 버전입니다: v$cur"
+  exit 0
+}
 if ([string]::IsNullOrWhiteSpace([string]$upd.ZipUrl)) { Fail-Upd '최신 릴리스에 ZIP 파일이 첨부되어 있지 않습니다.' }
 # 이중 방어: Get-UpdateInfo 필터를 통과했어도 설치 전에 한 번 더 검증한다.
 if (-not (Test-TrustedReleaseUrl ([string]$upd.ZipUrl))) { Fail-Upd '허용되지 않은 다운로드 주소입니다.' }
