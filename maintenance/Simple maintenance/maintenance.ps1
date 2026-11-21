@@ -35,13 +35,18 @@ param(
   # 결과 txt 를 만들 데스크톱 경로(관리자 계정이 다를 때 사용자 데스크톱으로 지정).
   [string]$ReportTo = '',
   # v1.13.0: 오래된 드라이버 판정 로직만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
-  [switch]$SelfTestDrivers
+  [switch]$SelfTestDrivers,
+  # v1.14.6: 초보자용 결과표 매핑만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
+  [switch]$SelfTestExplain
 )
 
 Set-StrictMode -Version Latest
 
 # --- 단일 인스턴스 보장 (Mutex) 초기화 ---
 $script:mutex = $null
+# v1.14.6: 설명 모드 상태 (아래에서 config 값/질문으로 갱신). StrictMode 대비 미리 초기화.
+$script:explainNewbie = $false
+$script:resultLines = @()
 
 # --- 실행 시간 측정 ---
 $script:executionTimings = [System.Collections.ArrayList]@()
@@ -146,6 +151,165 @@ function L {
   param([string]$Ko, [string]$En)
   if ($script:kitLang -eq 'ko') { return $Ko }
   return $En
+}
+
+# ============================================================
+# v1.14.6: 초보자용 결과표 (newbie.txt의 39개 비유를 실제 로그 라벨에 연결)
+#   - 기술 로그는 그대로 파일과 콘솔에 남기고, 사람이 읽는 결과표만 쉽게 풀어 쓴다.
+#   - config.json 의 explainMode=beginner 일 때만 사용한다(한 번 선택하면 고정).
+# ============================================================
+$script:newbieExplainMap = [ordered]@{
+  'OS'           = [pscustomobject]@{ No=1;  Ko='운영체제 (레고 조립 설명서 표지)'; En='OS (cover of the Lego manual)'; HintKo='정품이 아니거나 버전 정보가 이상할 때 알려줍니다. 자동으로 고치지는 않아요.'; HintEn='Reports licensing or version oddities. It does not fix them automatically.' }
+  'CPU'          = [pscustomobject]@{ No=2;  Ko='두뇌 (주방의 요리사)'; En='CPU (the kitchen chef)'; HintKo='요리사가 얼마나 바쁜지 잠깐 재는 것뿐입니다. 숫자를 못 읽었을 때만 알려줘요.'; HintEn='Just a quick snapshot of how busy the chef is. It only reports a read failure.' }
+  'MEMORY'       = [pscustomobject]@{ No=3;  Ko='책상 위 작업 공간 (RAM)'; En='Memory (space on the desk)'; HintKo='책상이 거의 다 차면 알려줍니다. 오래된 컴퓨터라면 RAM 추가를 고민해도 돼요.'; HintEn='Warns when the desk is nearly full. On an old PC, consider adding RAM.' }
+  'DISK'         = [pscustomobject]@{ No=4;  Ko='서랍장/창고'; En='Disk (drawers and storage)'; HintKo='여유 공간이 드라이브의 10%보다 적으면 정리를 제안합니다. 지우기 전에 반드시 목록을 보여주고 y 를 받아요.'; HintEn='Suggests cleanup below 10% free space. It always shows a list and asks y before deleting.' }
+  'DISKCHECK'    = [pscustomobject]@{ No=4;  Ko='서랍장/창고 (여유 공간 확인)'; En='Disk (free space check)'; HintKo='모든 드라이브의 여유 공간을 확인한 결과입니다.'; HintEn='Result of the free-space check on every drive.' }
+  'CLEANUP'      = [pscustomobject]@{ No=4;  Ko='서랍장 정리'; En='Disk cleanup'; HintKo='오래된 임시 파일만 대상이며, 목록 확인 후 y 를 눌러야 지웁니다.'; HintEn='Only old temporary files are targeted, and y is required after reviewing the list.' }
+  'SERVICE'      = [pscustomobject]@{ No=5;  Ko='집안의 작은 일꾼들'; En='Services (little helpers)'; HintKo='프린터 심부름꾼·백신 경비원 같은 일꾼이 쉬고 있으면 다시 깨웁니다.'; HintEn='Wakes up helpers such as the printer errand runner and the antivirus guard.' }
+  'VSS'          = [pscustomobject]@{ No=6;  Ko='타임캡슐 (볼륨 섀도 복사본)'; En='VSS (time capsule)'; HintKo='어제 상태를 찍어둔 사진입니다. 사진 담당 일꾼을 깨우고 보관함 크기도 봐요.'; HintEn='A snapshot of yesterday. It wakes the snapshot helper and checks the storage size.' }
+  'DISKHEALTH'   = [pscustomobject]@{ No=7;  Ko='하드디스크 건강 진단서 (SMART)'; En='Disk health (SMART report card)'; HintKo='재할당·CRC·마모 숫자가 전부 0이면 아주 건강합니다. 늘어나는지도 기억해요.'; HintEn='All zeroes means healthy. It also remembers whether the numbers grew.' }
+  'SYSFIX'       = [pscustomobject]@{ No=8;  Ko='집안 기본 설정 점검'; En='SysFix (house basics)'; HintKo='쓰러졌을 때 남기는 메모, 타임머신(복원 지점), 일기장 크기 같은 기본 설정입니다. 대부분 자동으로 고칩니다.'; HintEn='Basics such as crash notes, restore points and diary size. Most are fixed automatically.' }
+  'SECUREBOOT'   = [pscustomobject]@{ No=9;  Ko='현관문 보안 검사 (Secure Boot)'; En='Secure Boot (front-door security)'; HintKo='컴퓨터가 켜질 때 정품 부품인지 확인하는 문입니다. 꺼져 있으면 BIOS 에서 직접 켜야 해요.'; HintEn='The door that checks parts at startup. If off, you must enable it in BIOS yourself.' }
+  'RECOVERY'     = [pscustomobject]@{ No=10; Ko='비상구 (WinRE)'; En='Recovery (emergency exit)'; HintKo='윈도우가 안 켜질 때 들어가는 응급실입니다. 문이 닫혀 있으면 다시 열어요.'; HintEn='The emergency room used when Windows will not boot. It reopens the door if closed.' }
+  'WMI'          = [pscustomobject]@{ No=11; Ko='컴퓨터 내부 안내 데스크'; En='WMI (internal help desk)'; HintKo='다른 검사들이 묻고 답하는 창구입니다. 장부가 뒤섞이면 정리해요.'; HintEn='The help desk other checks ask. It tidies the ledger if the records are mixed up.' }
+  'CERTSTORE'    = [pscustomobject]@{ No=12; Ko='신분증/여권 유효기간'; En='CertStore (ID and passport expiry)'; HintKo='인터넷에서 사이트를 확인할 때 쓰는 전자 신분증입니다. 30일 안에 만료되면 알려주고, 갱신은 직접 해야 해요.'; HintEn='Electronic IDs used to verify sites. It warns 30 days early; renewal is up to you.' }
+  'TASKHEALTH'   = [pscustomobject]@{ No=13; Ko='약속한 심부름 확인'; En='TaskHealth (promised errands)'; HintKo='매일 새벽에 할게요 라고 약속한 예약 작업이 8일 넘게 안 하면 알려줍니다.'; HintEn='Reports scheduled jobs that have not run for over 8 days.' }
+  'GPU'          = [pscustomobject]@{ No=14; Ko='그림 담당 화가 (드라이버 = 안경)'; En='GPU (the painter; driver = glasses)'; HintKo='화가가 쓰는 안경이 드라이버입니다. 안경이 깨지면 그림이 이상해져요. 교체는 Windows Update 나 제조사에서 하세요.'; HintEn='The driver is the painters glasses. Update them through Windows Update or the maker.' }
+  'BATTERY'      = [pscustomobject]@{ No=15; Ko='노트북 연료 게이지'; En='Battery (laptop fuel gauge)'; HintKo='처음보다 얼마나 닳았는지 퍼센트로 알려줍니다. 100%면 교체를 권해요.'; HintEn='Shows wear as a percentage. At 100 percent, consider a replacement.' }
+  'WHEA'         = [pscustomobject]@{ No=16; Ko='하드웨어가 남긴 아팠어요 쪽지'; En='WHEA (hardware notes saying it hurts)'; HintKo='CPU·메모리·메인보드가 순간 튐을 기록한 쪽지입니다. 최근 7일치를 보고, 계속 쌓이면 점검이 필요해요.'; HintEn='Notes from CPU, memory and board about voltage spikes. Repeated notes warrant a checkup.' }
+  'DRIVERSTORE'  = [pscustomobject]@{ No=17; Ko='부품 설명서 보관 창고'; En='DriverStore (parts manual warehouse)'; HintKo='부품 설치 때마다 설명서가 쌓입니다. 10GB 넘으면 알려주고, 실제 정리는 Windows 가 해요.'; HintEn='Manuals pile up with each install. It warns above 10GB; Windows does the cleanup.' }
+  'BROWSERCACHE' = [pscustomobject]@{ No=18; Ko='인터넷 임시 보관 서랍'; En='Browser cache (temporary internet drawer)'; HintKo='30일 넘게 안 열어본 복사본입니다. 목록을 보여주고 y 를 누를 때만 지워요.'; HintEn='Copies not opened in 30 days. It only deletes after you see the list and press y.' }
+  'HOSTFILE'     = [pscustomobject]@{ No=19; Ko='직접 쓴 주소록'; En='Hosts file (your own address book)'; HintKo='이름과 주소를 직접 적어둔 메모입니다. 별표 규칙은 윈도우가 지원하지 않아요. 주인 메모라 고치지는 않습니다.'; HintEn='Your own name-to-address notes. Wildcards do not work and are left untouched.' }
+  'DNS'          = [pscustomobject]@{ No=20; Ko='전화번호 안내원'; En='DNS (phone-book operator)'; HintKo='이름을 번호로 바꿔주는 안내원입니다. 기억(캐시)이 꼬였을 수 있어 지우고 새로 묻습니다. 무해해요.'; HintEn='Turns names into numbers. It clears a possibly stale memory; harmless.' }
+  'ADQUIET'      = [pscustomobject]@{ No=21; Ko='광고 알림 끄기'; En='AdQuiet (ad-notice switch)'; HintKo='추천 팁 알림을 끄는 스위치입니다. 되돌리기는 자동 유지보수 제거 메뉴에서 할 수 있어요.'; HintEn='Switch for promotional tips. Revert it from the Remove Maintenance menu.' }
+  'ADFILTER'     = [pscustomobject]@{ No=22; Ko='광고 전단지 차단'; En='AdFilter (ad flyer blocker)'; HintKo='우편함에 전단지가 안 오게 하는 스티커입니다. 기본은 꺼져 있고, 앱 안 광고는 못 막아요.'; HintEn='A sticker that stops flyers in the mailbox. Off by default; cannot block in-app ads.' }
+  'NETWORK'      = [pscustomobject]@{ No=23; Ko='인터넷 고속도로 차선 정리'; En='Network (highway lanes)'; HintKo='인터넷 선이 여러 개면 갈 순서를 정합니다. 엉켜 있으면 느려져서 바로잡고, 꺼진 경비원(방화벽)도 켜요.'; HintEn='Sets the order of multiple connections and turns the firewall guard back on.' }
+  'GHOSTDEV'     = [pscustomobject]@{ No=24; Ko='옛날 부품의 이름표'; En='GhostDev (old device name tags)'; HintKo='뺐는데 아직 이름이 남은 유령 부품입니다. 잘못 지우면 진짜 부품이 사라질 수 있어 골라내기만 해요.'; HintEn='Leftover tags for removed devices. It only lists them; deleting could remove real devices.' }
+  'PKGCACHE'     = [pscustomobject]@{ No=25; Ko='개발자 재료 창고'; En='PkgCache (developer supply closet)'; HintKo='pip/conda/npm 재료 창고입니다. 2GB 넘으면 오래된 것을 치우고, HuggingFace 는 경고만 하고 절대 지우지 않아요.'; HintEn='pip/conda/npm supplies. It trims old ones above 2GB but never deletes HuggingFace.' }
+  'STARTUP'      = [pscustomobject]@{ No=26; Ko='문 열자 켜지는 가전제품 목록'; En='Startup (appliances that switch on with the door)'; HintKo='컴퓨터를 켜면 같이 켜지는 프로그램입니다. 새로 생긴 게 있으면 한 번만 알려줘요.'; HintEn='Programs that start with the PC. It reports newly added ones only once.' }
+  'RECYCLEBIN'   = [pscustomobject]@{ No=27; Ko='휴지통'; En='Recycle Bin'; HintKo='버렸지만 아직 완전히 사라지지 않은 것들입니다. 30일 넘은 것도 목록 보고 y 를 눌러야 비워요.'; HintEn='Thrown away but not gone. Even 30-day-old items need y after the list.' }
+  'REGHIVE'      = [pscustomobject]@{ No=28; Ko='컴퓨터 설정 장부'; En='Registry (settings ledger)'; HintKo='설정을 적어둔 두꺼운 장부입니다. 500MB 넘으면 알려주지만, 함부로 고치면 고장 날 수 있어 손대지 않아요.'; HintEn='A thick settings ledger. It warns above 500MB but never edits it to avoid damage.' }
+  'DEFRAG'       = [pscustomobject]@{ No=29; Ko='책장 정리 예약 확인'; En='Defrag (bookshelf tidying schedule)'; HintKo='책을 빨리 찾게 정리하는 예약이 걸려 있는지만 봅니다. 실제 정리는 윈도우가 일주일에 한 번 해요.'; HintEn='Only checks that the weekly tidying schedule exists; Windows does the actual work.' }
+  'CHKDSK'       = [pscustomobject]@{ No=30; Ko='책장의 찢어진 페이지 확인'; En='CHKDSK (torn book pages)'; HintKo='디스크에 찢어진 페이지가 있는지 검사합니다. 2~3분 걸려서 12일에 한 번만 해요.'; HintEn='Checks for torn pages on the disk. Takes 2-3 minutes, so it runs every 12 days.' }
+  'BSOD'         = [pscustomobject]@{ No=31; Ko='쓰러졌을 때 남긴 메모 (파란 화면)'; En='BSOD (notes from a blue-screen fall)'; HintKo='컴퓨터가 갑자기 파란 화면이 된 적의 원인 메모를 최근 90일치 읽어 쉽게 풀어줍니다.'; HintEn='Reads up to 90 days of blue-screen notes and explains the cause simply.' }
+  'SFC'          = [pscustomobject]@{ No=32; Ko='레고 설명서와 내 작품 비교 (가장 중요)'; En='SFC (manual versus your build, the big one)'; HintKo='핵심 파일을 원래 설명서와 대조합니다. 2~4분 걸려 30일에 한 번만 하고, 잘못 고치면 더 망가질 수 있어 자동 수정은 안 해요.'; HintEn='Compares core files with the original manual. Runs every 30 days and does not auto-fix.' }
+  'WINSXS'       = [pscustomobject]@{ No=33; Ko='부품 창고 정리'; En='WinSxS (parts warehouse cleanup)'; HintKo='업데이트 때 남은 옛날 부품을 정리해 윈도우를 가볍게 합니다. 다시 설치할 안전장치는 남겨요.'; HintEn='Clears old parts to lighten Windows while keeping a way to reinstall them.' }
+  'DISM'         = [pscustomobject]@{ No=33; Ko='부품 창고 정리 도구'; En='DISM (warehouse cleanup tool)'; HintKo='위 부품 창고를 정리하는 도구입니다. 30~60초 걸려요.'; HintEn='The tool used to clean that warehouse; takes 30-60 seconds.' }
+  'TIMESYNC'     = [pscustomobject]@{ No=34; Ko='시계 맞추기'; En='TimeSync (clock sync)'; HintKo='시계가 1초라도 어긋나면 인증서·로그인·업데이트가 꼬일 수 있어 세계 표준 시계에 묻고 맞춥니다.'; HintEn='Even a one-second drift can break certificates and logins, so it asks the world clock.' }
+  'STABILITY'    = [pscustomobject]@{ No=35; Ko='최근 7일 일기장'; En='Stability (the 7-day diary)'; HintKo='어제 어떤 앱이 넘어졌는지 모은 일기장입니다. 같은 앱이 자주 넘어지면 업데이트가 필요하다고 알려줘요.'; HintEn='A diary of apps that crashed. Repeated crashes suggest an update is needed.' }
+  'BOOTPERF'     = [pscustomobject]@{ No=36; Ko='아침 출근 시간 측정'; En='BootPerf (morning commute time)'; HintKo='켜고 바탕화면까지 몇 초 걸렸는지 재는 것입니다. 27초면 보통, 2분이면 뭔가 문제예요.'; HintEn='Time from power-on to desktop. 27s is normal; 2 minutes means something is wrong.' }
+  'UPDATES'      = [pscustomobject]@{ No=37; Ko='예방접종 (업데이트와 백신)'; En='Updates (vaccinations and antivirus)'; HintKo='새 버그와 보안 구멍을 막는 예방접종입니다. 자동 설치는 기본 꺼져 있어요(몰래 재부팅하지 않게).'; HintEn='Patches for new bugs and security holes. Auto-install is off to avoid surprise reboots.' }
+  'AUTOHEAL'     = [pscustomobject]@{ No=38; Ko='자동 수리공'; En='AutoHeal (the repair bot)'; HintKo='일기장을 보고 안전하게 고칠 수 있는 것만 바로 고칩니다. 같은 사건은 두 번 고치지 않아요.'; HintEn='Fixes only safe issues from the diary and never the same event twice.' }
+  'OLDDRIVERS'   = [pscustomobject]@{ No=39; Ko='오래된 드라이버 설명서 정리'; En='OldDrivers (outdated driver manuals)'; HintKo='더 새 설명서가 이미 있는데 옛것이 남은 경우입니다. 쓰는 것과 부팅 필수 것은 절대 지우지 않고, 목록 보고 y 를 눌러야 지워요.'; HintEn='Old manuals with a newer one already present. In-use and boot-critical ones are never removed; y is required.' }
+  'REBOOT'       = [pscustomobject]@{ No=0;  Ko='재부팅 대기 상태'; En='Pending reboot'; HintKo='파일 교체를 위해 재부팅이 필요하다는 뜻입니다. 재부팅하면 일부 검사 결과가 더 정확해져요.'; HintEn='A reboot is pending to replace files. Results are more accurate after restarting.' }
+  'ADMIN'        = [pscustomobject]@{ No=0;  Ko='관리자 권한'; En='Administrator rights'; HintKo='컴퓨터 설정을 바꿀 수 있는 권한이 있는지 확인합니다.'; HintEn='Checks whether the script has rights to change system settings.' }
+}
+
+function Get-NewbieCheckInfo {
+  param([string]$Label)
+  $key = ([string]$Label -replace '\s+.*$', '').Trim().ToUpperInvariant()
+  if ($script:newbieExplainMap.Contains($key)) { return $script:newbieExplainMap[$key] }
+  return $null
+}
+
+function Get-NewbieStatus {
+  param([string]$Status)
+  switch ([string]$Status) {
+    'PASS'     { return [pscustomobject]@{ Mark='OK'; Ko='정상 — 아무 문제 없어요'; En='OK - no problem'; Bad=$false } }
+    'SKIP'     { return [pscustomobject]@{ Mark='--'; Ko='오늘은 안 해도 되는 검사이에요'; En='Skipped this time'; Bad=$false } }
+    'INFO'     { return [pscustomobject]@{ Mark='i '; Ko='참고로 알려주는 내용이에요'; En='Just for your information'; Bad=$false } }
+    'CHANGE'   { return [pscustomobject]@{ Mark='>>'; Ko='컴퓨터가 알아서 고쳤어요'; En='Fixed automatically'; Bad=$false } }
+    'FIX'      { return [pscustomobject]@{ Mark='>>'; Ko='컴퓨터가 알아서 고쳤어요'; En='Fixed automatically'; Bad=$false } }
+    'WARN'     { return [pscustomobject]@{ Mark='!!'; Ko='한 번 확인해 보세요 (당장 고장은 아님)'; En='Worth a look (not broken yet)'; Bad=$true } }
+    'FAIL'     { return [pscustomobject]@{ Mark='XX'; Ko='고쳐야 해요'; En='Needs a fix'; Bad=$true } }
+    'CRITICAL' { return [pscustomobject]@{ Mark='XX'; Ko='빠르게 확인해야 해요'; En='Please check this soon'; Bad=$true } }
+    default    { return $null }
+  }
+}
+
+function ConvertTo-NewbieLine {
+  param([string]$Line)
+  # -match 여야 $Matches 가 채워진다 (-notmatch 는 채우지 않음).
+  if ([string]$Line -notmatch '^\s*([A-Za-z][A-Za-z0-9 ]*?):\s*(PASS|FAIL|WARN|CHANGE|INFO|SKIP|FIX|CRITICAL)\s*(?:-\s*(.*))?$') { return '' }
+  $mm = [regex]::Match([string]$Line, '^\s*([A-Za-z][A-Za-z0-9 ]*?):\s*(PASS|FAIL|WARN|CHANGE|INFO|SKIP|FIX|CRITICAL)\s*(?:-\s*(.*))?$')
+  if (-not $mm.Success) { return '' }
+  $info = Get-NewbieCheckInfo -Label $mm.Groups[1].Value
+  if (-not $info) { return '' }
+  $st = Get-NewbieStatus -Status $mm.Groups[2].Value
+  if (-not $st) { return '' }
+  $detail = if ($mm.Groups[3].Success) { [string]$mm.Groups[3].Value } else { '' }
+  $no = if ([int]$info.No -gt 0) { '[' + $info.No + '] ' } else { '' }
+  $label = if ($script:kitLang -eq 'ko') { [string]$info.Ko } else { [string]$info.En }
+  $state = if ($script:kitLang -eq 'ko') { [string]$st.Ko } else { [string]$st.En }
+  $out = '  ' + $st.Mark + '  ' + $no + $label + '  :  ' + $state
+  if ($detail) { $out += "`n        - " + $detail }
+  if ($st.Bad) {
+    $hint = if ($script:kitLang -eq 'ko') { [string]$info.HintKo } else { [string]$info.HintEn }
+    if ($hint) { $out += "`n        * " + $hint }
+  }
+  return $out
+}
+
+function Get-NewbieResultTable {
+  param([string[]]$Lines)
+  $rows = @()
+  foreach ($ln in @($Lines)) {
+    $c = ConvertTo-NewbieLine -Line ([string]$ln)
+    if (-not [string]::IsNullOrWhiteSpace($c)) { $rows += $c }
+  }
+  $out = @()
+  $out += (L '================ [ 초보자용 결과표 ] ================' '================ [ Easy-to-read results ] ================')
+  $out += (L '  OK=정상   !!=확인 필요   XX=고쳐야 함   >>=컴퓨터가 고침   i =참고' '  OK=all good   !!=worth a look   XX=needs a fix   >>=auto-fixed   i =info')
+  $out += ''
+  if ($rows.Count -eq 0) {
+    $out += (L '  (표시할 검사가 없습니다. 아래 상세 로그를 보세요.)' '  (No checks to show. See the detailed log below.)')
+  } else {
+    $out += $rows
+  }
+  return $out
+}
+
+function Get-NewbieTodoSection {
+  param([string[]]$Todo)
+  $out = @()
+  if (@($Todo).Count -eq 0) { return $out }
+  $out += (L '[ 초보자용 — 직접 확인할 부분 ]' '[ Easy-to-read - things to check yourself ]')
+  $out += (L '아래는 컴퓨터가 자동으로 못 고친 것들입니다. 천천히 하나씩 보세요.' 'The computer could not fix these on its own. Take a look one by one.')
+  $i = 0
+  foreach ($td in @($Todo)) {
+    $i++
+    $out += "  $i) $td"
+    $label = ''
+    if ([string]$td -match '^\[([^\]]+)\]') { $label = $Matches[1] }
+    $info = Get-NewbieCheckInfo -Label $label
+    if ($info) {
+      $hint = if ($script:kitLang -eq 'ko') { [string]$info.HintKo } else { [string]$info.HintEn }
+      if ($hint) { $out += "     * $hint" }
+    }
+  }
+  return $out
+}
+
+# v1.14.6: 결과표 매핑 자체검사 (전체 점검 없이 검증). 가상 로그 라벨이 비유로 바뀌는지 확인한다.
+if ($SelfTestExplain) {
+  $fake = @(
+    'OS: PASS - Microsoft Windows 11 Pro',
+    'CPU: PASS - Usage at 54.99%',
+    'GPU: WARN - NVIDIA GeForce RTX 5070 Ti (Driver: 32.0.16.1088, Error)',
+    'SecureBoot: WARN - Secure Boot 비활성',
+    'WHEA: PASS - No hardware errors in last 7 days',
+    'SFC: FAIL - 손상된 파일 발견',
+    'REBOOT: WARN - Pending reboot detected'
+  )
+  $t = Get-NewbieResultTable -Lines $fake
+  $t | ForEach-Object { Write-Output $_ }
+  $todoTest = Get-NewbieTodoSection -Todo @('[SecureBoot] BIOS/UEFI 설정에서 Secure Boot를 켜세요')
+  $todoTest | ForEach-Object { Write-Output $_ }
+  $hit = @($t | Where-Object { $_ -match '레고|현관|그림|아팠어요|요리사' }).Count
+  $todoHit = @($todoTest | Where-Object { $_ -match '^\s+\*\s' }).Count
+  Write-Output "SelfTestExplain: table=$hit (need>=4) todo=$todoHit (need>=1)"
+  if ($hit -lt 4 -or $todoHit -lt 1) { exit 1 }
+  exit 0
 }
 
 # ============================================================
@@ -363,6 +527,10 @@ $defaults = @{
   adBlockMaxDomains        = 500       # 안전 상한 (사람이 검토 가능한 크기)
   adDnsEnabled             = $false    # 시스템 DNS를 필터링 리졸버로 변경 (opt-in)
   adDnsServers             = @('94.140.14.14', '94.140.15.15')  # AdGuard DNS (광고+트래커)
+  # --- v1.14.6: 결과 설명 수준 (한 번만 묻고 고정) ---
+  #   '' = 아직 선택 안 함(첫 대화형 점검에서 Y/N 질문) / expert = 기술 로그 그대로
+  #   beginner = newbie.txt 비유로 풀어 쓴 결과표. 예약 실행은 질문 없이 이 값을 따른다.
+  explainMode              = ''
 }
 
 # --- 외부 config.json 설정 불러오기 (있으면 내장 기본값보다 우선) ---
@@ -383,7 +551,7 @@ function Assert-ConfigSchema {
              'watchedTasks','watchedTaskMaxAgeDays',
              'adQuiet','adQuietKeepLockScreen','adQuietMutePromoToasts','adQuietDisableTipsTasks',
              'oldDriverCleanup','oldDriverCheckDays',
-              'tempAutoDelete','browserCacheAutoDelete','recycleAutoDelete','autoFeedback',
+              'tempAutoDelete','browserCacheAutoDelete','recycleAutoDelete','autoFeedback','explainMode',
              'adBlockEnabled','adBlockCategories','adBlockExtraDomains','adBlockAllowDomains','adBlockMaxDomains',
              'adDnsEnabled','adDnsServers')
   $types = @{ diskThresholdGB = [int]; tempDirs = [string[]]; servicesToCheck = [string[]]; restartServices = [string[]]; criticalServices = [string[]];
@@ -464,6 +632,26 @@ function Set-CfgBool {
     return $true
   } catch {
     Write-LogEntry "Delete Review: WARN - '$Key' 설정 저장 실패: $($_.Exception.Message)"
+    return $false
+  }
+}
+
+# v1.14.6: 결과 설명 수준(expert/beginner)을 config.json 에 영구 저장.
+#   한 번 선택하면 다시 묻지 않는다. 저장 실패 시에도 이번 실행은 선택값을 쓴다.
+function Set-ExplainMode {
+  param([Parameter(Mandatory = $true)][ValidateSet('expert', 'beginner')][string]$Value)
+  try {
+    $cfgObj = if ($config) { $config } else { [ordered]@{} }
+    if ($cfgObj -is [PSCustomObject]) {
+      $cfgObj | Add-Member -NotePropertyName 'explainMode' -NotePropertyValue $Value -Force
+    } else {
+      $cfgObj['explainMode'] = $Value
+    }
+    $cfgObj | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+    $script:config = $cfgObj
+    return $true
+  } catch {
+    Write-LogEntry "ExplainMode: WARN - 설정 저장 실패: $($_.Exception.Message)"
     return $false
   }
 }
@@ -1165,6 +1353,11 @@ function Write-LogEntry {
     }
   }
   
+  # v1.14.6: 초보자용 결과표용으로 기술 결과 라인만 모은다. 기술 로그 파일 내용은 그대로 유지.
+  if ($Message -match '^\w.*:\s*(PASS|FAIL|WARN|CHANGE|INFO|SKIP|CRITICAL)\s*-') {
+    $script:resultLines += $Message
+  }
+
   $result = $Message -replace '^[^:]+:\s*', ''
   $consoleMsg = $Message
   if ($Message -match ':\s*(PASS|SKIP)') { $consoleMsg = $Message -replace ':\s*(PASS|SKIP)\s*-\s*', ': ✓ ' }
@@ -1540,6 +1733,34 @@ if ($Mode -eq 'check') {
   Write-Output ' 있으며 로그에 각 기능의 설명이 첨부되어있습니다.'
   Write-Output '============================================'
   Write-Output ''
+}
+
+# === v1.14.6: 결과 설명 수준을 첫 대화형 점검에서만 묻고 config 에 고정 ===
+#   사람이 없는 예약/유휴 실행에서는 절대 묻지 않고 저장된 값을 그대로 쓴다.
+#   기본(미선택/답변 없음)은 expert — 기술 로그를 그대로 보여준다.
+$canAskExplain = (($Mode -eq 'check') -or $PromptForDelete) -and [Environment]::UserInteractive -and -not [Console]::IsOutputRedirected
+$explainSaved = [string](Get-Cfg 'explainMode')
+if ($explainSaved -eq 'beginner') {
+  $script:explainNewbie = $true
+} elseif ($explainSaved -eq 'expert') {
+  $script:explainNewbie = $false
+} elseif ($canAskExplain) {
+  Write-Output ''
+  Write-Output (L '질문: 컴퓨터를 잘 아시나요? (한 번만 묻고 이 선택을 설정에 기억합니다)' 'Question: Are you comfortable with computers? (asked once, then saved)')
+  Write-Output (L '  Y = 잘 아는 편이에요 → 기술적인 결과를 그대로 보여줍니다' '  Y = Yes, I know my way around -> show technical results')
+  Write-Output (L '  N = 잘 모르는 편이에요 → 비유로 쉽게 풀어서 결과표를 보여줍니다' '  N = No, explain simply -> show an easy table with analogies')
+  $explainAnswer = ''
+  try { $explainAnswer = (Read-Host (L '선택 [Y/N]' 'Choice [Y/N]')).Trim().ToUpperInvariant() } catch { $explainAnswer = '' }
+  if ($explainAnswer -match '^(N|NO|아니|2)$') {
+    $script:explainNewbie = $true
+    $saved = Set-ExplainMode -Value 'beginner'
+  } else {
+    $script:explainNewbie = $false
+    $saved = Set-ExplainMode -Value 'expert'
+  }
+  if ($saved) {
+    Write-Output (L '선택을 설정에 저장했습니다. 다음부터는 묻지 않습니다. (바꾸려면 config.json 의 explainMode 를 바꾸세요)' 'Saved. You will not be asked again. (To change it, edit explainMode in config.json)')
+  }
 }
 
 # 이벤트 로그 소스 생성 (처음 한 번만)
@@ -5711,6 +5932,12 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
         }
       }
 
+      # v1.14.6: 초보자 모드에서는 기술 요약 앞에 쉽게 풀어 쓴 할 일 목록을 붙인다.
+      if ($script:explainNewbie -and $todoList.Count -gt 0) {
+        $easyTodo = Get-NewbieTodoSection -Todo $todoList
+        $summaryBody = @($easyTodo) + @('') + $summaryBody
+      }
+
       $report = @()
       $report += $summaryHead
       $report += $summaryLine
@@ -5718,6 +5945,12 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       $report += $summaryVersion
       $report += $summaryCounts
       if ($summarySlow) { $report += $summarySlow }
+      # v1.14.6: 초보자용 결과표 (기술 로그는 아래 '상세 로그'에 그대로 남는다).
+      if ($script:explainNewbie) {
+        $report += ''
+        $report += (Get-NewbieResultTable -Lines $script:resultLines)
+        $report += ''
+      }
       $report += $summaryBody
       $report += ''
       $report += (L '[안내] 이 점검은 파일 백업을 하지 않습니다. 중요한 파일(사진/문서)은 별도로 백업하세요.' '[Note] This check does not back up files. Please back up important files (photos/documents) separately.')
@@ -5852,6 +6085,18 @@ if ($allPass) {
   Write-Output 'Maintenance completed: ALL PASSED'
 } else {
   Write-Output 'Maintenance completed: SOME CHECKS FAILED'
+}
+
+# v1.14.6: 초보자 모드에서는 화면에도 같은 결과표를 다시 보여준다.
+#   직접 실행(-Mode check)은 결과 txt 를 만들지 않으므로 화면 출력이 유일한 결과물이다.
+if ($script:explainNewbie) {
+  Write-Output ''
+  Write-Output (Get-NewbieResultTable -Lines $script:resultLines)
+  $easyTodoScreen = Get-NewbieTodoSection -Todo @($recommendations)
+  if ($easyTodoScreen.Count -gt 0) {
+    Write-Output ''
+    $easyTodoScreen | ForEach-Object { Write-Output $_ }
+  }
 }
 
 # v1.14.3: 종료 직전 피드백 안내 + A/Y/N 전송 선택.
