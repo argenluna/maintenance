@@ -86,7 +86,10 @@ try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   $headers = @{ 'User-Agent' = 'AutoMaintenanceKit/1.8'; 'Accept' = 'application/vnd.github+json' }
   $res = Invoke-WebRequest -Uri $api -Headers $headers -UseBasicParsing -TimeoutSec 25
-  $rels = @($res.Content | ConvertFrom-Json)
+  $data = $res.Content | ConvertFrom-Json
+  if ($null -eq $data) { $data = @() }
+  # PS 5.1 ConvertFrom-Json 은 루트 배열을 열거하지 않고 넘긴다. 변수에 담은 뒤 @() 로 펼쳐야 한다.
+  $rels = @($data)
 } catch {
   Add-Row '릴리스 조회' $false ("GitHub 접속 실패: " + $_.Exception.Message)
   Write-VerifyReport -Tag '(조회 실패)' -Summary '확인 불가' -Note '인터넷 연결을 확인한 뒤 다시 실행하세요.'
