@@ -5676,7 +5676,7 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       # 2026-11-13: 파일명만으로는 폴더가 여러 개일 때 구분이 안 되므로 **전체 경로**를 남긴다.
       if ($script:deleteReview.Count -gt 0) {
         $summaryBody += ''
-        $summaryBody += (L '[삭제 전 확인 목록 — 지운/보류한 파일의 전체 경로 (복구용)]' '[Deletion review - Full paths of deleted/skipped files (for recovery)]')
+        $summaryBody += (L '[삭제 전 확인 목록 — 지운/보류한 파일 요약 (전체 경로는 GitHub 업로드 시 개인정보 보호를 위해 생략)]' '[Deletion review - Summary of deleted/skipped files (full paths omitted when uploaded to GitHub for privacy)]')
         foreach ($dr in $script:deleteReview) {
           $summaryBody += ((L '  · [{0}] {1}개 / {2} → {3}' '  · [{0}] {1} item(s) / {2} -> {3}') -f $dr.target, $dr.count, $dr.size, $dr.decisionText)
           foreach ($nt in @($dr.notice)) { if (-not [string]::IsNullOrWhiteSpace($nt)) { $summaryBody += "      $nt" } }
@@ -5862,8 +5862,8 @@ if ($allPass) {
 Write-Output ''
 Write-Output (L '--------------------------------------------------' '--------------------------------------------------')
 Write-Output (L '검사가 끝났습니다.' 'Check finished.')
-Write-Output (L '바탕화면의 "자동 유지보수 피드백"이나 아래 선택으로 의견·점검 결과를 제작자에게 보낼 수 있습니다.' 'Use "Auto Maintenance Feedback" on your Desktop or the choice below to send comments or the check report to the maker.')
-Write-Output (L '보내주신 한 줄 의견도 기능 개선과 문제 수정에 큰 도움이 됩니다.' 'Even a one-line comment helps improve features and fix problems.')
+Write-Output (L '의견을 남기시고 싶으면 바탕화면의 "자동 유지보수 피드백"을 실행해 보고서와 함께 기능 추가·개선 방향을 남겨주세요.' 'To leave a comment, run "Auto Maintenance Feedback" on your Desktop and write feature requests or improvements along with the report.')
+Write-Output (L '보내주신 의견은 기능 개선과 문제 수정에 큰 도움이 됩니다. 아래 선택은 보고서만 간편하게 보냅니다.' 'Your comments help improve features and fix problems. The choice below sends just the report.')
 
 function Invoke-FeedbackUpload {
   $fb = Join-Path (Split-Path -Parent $scriptRoot) 'feedback.ps1'

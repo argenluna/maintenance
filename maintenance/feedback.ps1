@@ -133,6 +133,10 @@ function ConvertTo-MaskedText {
   # 2) Windows 사용자 프로필 경로
   $t = [regex]::Replace($t, '(?i)C:\\Users\\[^\\\r\n]+', 'C:\Users\<USER>')
 
+  # 2-1) v1.14.4: 키트 폴더(Simple maintenance)는 폴더명이 '<DOMAIN>'으로 뭉개지지 않게 보호.
+  #   뒤의 사용자명만 <USER> 로 바꾼다. (아래 도메인\사용자 규칙보다 먼저 실행해야 함)
+  $t = [regex]::Replace($t, '(?i)(Simple maintenance\\)[^\\\r\n]+', '$1<USER>')
+
   # 3) 도메인\사용자  (예: CRIS\dal04)  — C: 는 위에서 처리했으므로 제외
   $t = [regex]::Replace($t, '(?i)\b(?!C:)[A-Za-z0-9_.-]{2,}\\[A-Za-z0-9_.-]{2,}\b', '<DOMAIN>\<USER>')
 
@@ -142,9 +146,21 @@ function ConvertTo-MaskedText {
   # 5) 이메일 / MAC / IP
   $t = [regex]::Replace($t, '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', '<EMAIL>')
   $t = [regex]::Replace($t, '\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b', '<MAC>')
+
+  # v1.14.4: 드라이버 버전(예 32.0.16.1088)은 IP 와 패턴이 같아 <IP> 로 뭉개진다.
+  #   진단용으로 남기기 위해 IP 마스킹 전에 임시 토큰으로 보호했다가 복원한다.
+  $savedDriverVersions = @()
+  foreach ($drvMatch in [regex]::Matches($t, '(?i)\bDriver\s*[:=]\s*\d{1,3}(?:\.\d{1,3}){3}\b')) {
+    $savedDriverVersions += $drvMatch.Value
+    $t = $t.Replace($drvMatch.Value, "___DRVVER$($savedDriverVersions.Count - 1)___")
+  }
+
   $t = $t.Replace('0.0.0.0', '___ZERO_IP___')
   $t = [regex]::Replace($t, '\b\d{1,3}(?:\.\d{1,3}){3}\b', '<IP>')
   $t = $t.Replace('___ZERO_IP___', '0.0.0.0')
+  for ($di = 0; $di -lt $savedDriverVersions.Count; $di++) {
+    $t = $t.Replace("___DRVVER$di___", $savedDriverVersions[$di])
+  }
 
   # 6) SSID / 시리얼 / 컴퓨터명
   $t = [regex]::Replace($t, '(?i)\b(SSID|Wi-?Fi\s*이름|무선\s*네트워크)\s*[:=]\s*\S+', '$1: <REDACTED>')
@@ -230,7 +246,9 @@ if ($SelfTest) {
     @{ Ko = '시리얼';        En = 'Serial';           In = 'Serial: AB12CD34EF56';                     MustNot = @('AB12CD34EF56'); Must = @('<REDACTED>') },
     @{ Ko = '컴퓨터명';      En = 'Computer name';    In = 'DESKTOP-ABC123';                           MustNot = @('DESKTOP-ABC123'); Must = @('<HOST>') },
     @{ Ko = 'KB는 유지';     En = 'KB kept';          In = '마지막 패치 KB5132061';                    MustNot = @(); Must = @('KB5132061') },
-    @{ Ko = '하드웨어 유지'; En = 'Hardware kept';    In = 'Intel(R) Wi-Fi 6 AX200 160MHz';            MustNot = @(); Must = @('AX200') }
+    @{ Ko = '하드웨어 유지'; En = 'Hardware kept';    In = 'Intel(R) Wi-Fi 6 AX200 160MHz';            MustNot = @(); Must = @('AX200') },
+    @{ Ko = '드라이버 버전 유지'; En = 'Driver version kept'; In = 'GPU: RTX 5070 Ti (Driver: 32.0.16.1088, OK)'; MustNot = @('<IP>'); Must = @('32.0.16.1088') },
+    @{ Ko = '키트 폴더 경로'; En = 'Kit folder path'; In = 'Simple maintenance\dal04\deleted-20261121.txt'; MustNot = @('<DOMAIN>', 'dal04'); Must = @('Simple maintenance\') }
   )
   $pass = 0; $fail = 0
   foreach ($c in $cases) {
@@ -260,7 +278,7 @@ if ($SelfTest) {
   }
 
   Write-Host ""
-  $summary = L '자체검사: {0} PASS / {1} FAIL (마스킹 10 + 안전 5)' 'Self-test: {0} PASS / {1} FAIL (10 masking + 5 safety)'
+  $summary = L '자체검사: {0} PASS / {1} FAIL (마스킹 12 + 안전 5)' 'Self-test: {0} PASS / {1} FAIL (12 masking + 5 safety)'
   Write-Host ($summary -f $pass, $fail)
   $langLine = L '시스템 언어: {0} → {1}' 'System language: {0} → {1}'
   Write-Host ($langLine -f $kitLang, (L '한국어' 'English'))
