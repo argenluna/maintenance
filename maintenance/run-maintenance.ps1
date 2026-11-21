@@ -132,25 +132,46 @@ $updateCommon = Join-Path $scriptRoot 'update-common.ps1'
 if (Test-Path -LiteralPath $updateCommon) {
   try {
     . $updateCommon
-    $upd = Get-UpdateInfo -Root $scriptRoot -TimeoutSec 8
+    # 안정 채널과 "미리 해보기"(RC) 채널을 한 번의 릴리스 조회로 함께 읽는다.
+    $rels = @(Get-GitHubReleases -TimeoutSec 8)
+    $upd = Get-UpdateInfo -Root $scriptRoot -TimeoutSec 8 -Releases $rels
+    $prev = Get-PreviewInfo -Root $scriptRoot -TimeoutSec 8 -Releases $rels
+    if ($null -ne $prev) {
+      if ($null -ne $upd) {
+        $upd | Add-Member -NotePropertyName 'Preview' -NotePropertyValue $prev -Force
+      } else {
+        # 안정 버전은 최신이지만 준비 중 기능만 있을 때도 안내창을 띄운다.
+        $cur = Get-KitVersionValue -Root $scriptRoot
+        $upd = [pscustomobject]@{
+          Local = $cur; Latest = $cur; VersionsBehind = 0; Features = 0; FeatureList = @()
+          ZipUrl = ''; HashUrl = ''
+          PageUrl = 'https://github.com/argenluna/maintenance/releases'
+          StableAvailable = $false; Preview = $prev
+        }
+      }
+    }
     if ($null -ne $upd) {
       $skipVer = Get-SkipVersion -Root $scriptRoot
-      if ($skipVer -ne $upd.Latest.ToString()) {
+      $stableOnly = $true
+      if ($upd.PSObject.Properties['StableAvailable']) { $stableOnly = [bool]$upd.StableAvailable }
+      if ((-not $stableOnly) -or $skipVer -ne $upd.Latest.ToString()) {
         $autoClose = if ($Force) { 0 } else { 30 }
-        Write-RunnerLog ("update notice: current v$($upd.Local), latest v$($upd.Latest), autoClose=$autoClose s")
+        Write-RunnerLog ("update notice: current v$($upd.Local), latest v$($upd.Latest), preview=$($null -ne $prev), autoClose=$autoClose s")
         $choice = Show-UpdateNotice -UpdateInfo $upd -AutoCloseSeconds $autoClose
         Write-RunnerLog "update notice choice: $choice"
         if ($choice -eq 'skip') {
           Set-SkipVersion -Root $scriptRoot -Version $upd.Latest.ToString()
           Write-RunnerLog "update notice: v$($upd.Latest) added to skip list"
-        } elseif ($choice -eq 'update') {
+        } elseif ($choice -eq 'update' -or $choice -eq 'preview') {
           # 업데이트는 설치 폴더를 교체하므로 현재 점검을 여기서 끝내고 별도 프로세스로 넘긴다.
           $updater = Join-Path $scriptRoot '업데이트.ps1'
           if (-not (Test-Path -LiteralPath $updater)) { $updater = Join-Path $scriptRoot 'update.ps1' }
           if (Test-Path -LiteralPath $updater) {
-            $updArgs = Join-CliArgs @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $updater)
+            $cliArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $updater)
+            if ($choice -eq 'preview') { $cliArgs += '-Preview' }
+            $updArgs = Join-CliArgs $cliArgs
             Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $updArgs | Out-Null
-            Write-RunnerLog "update launched: $updater (ending this maintenance run)"
+            Write-RunnerLog "$choice launched: $updater (ending this maintenance run)"
             exit 0
           }
           Write-RunnerLog 'WARN updater script not found - continuing maintenance'
