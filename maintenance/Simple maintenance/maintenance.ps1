@@ -383,7 +383,7 @@ function Assert-ConfigSchema {
              'watchedTasks','watchedTaskMaxAgeDays',
              'adQuiet','adQuietKeepLockScreen','adQuietMutePromoToasts','adQuietDisableTipsTasks',
              'oldDriverCleanup','oldDriverCheckDays',
-              'tempAutoDelete','browserCacheAutoDelete','recycleAutoDelete',
+              'tempAutoDelete','browserCacheAutoDelete','recycleAutoDelete','autoFeedback',
              'adBlockEnabled','adBlockCategories','adBlockExtraDomains','adBlockAllowDomains','adBlockMaxDomains',
              'adDnsEnabled','adDnsServers')
   $types = @{ diskThresholdGB = [int]; tempDirs = [string[]]; servicesToCheck = [string[]]; restartServices = [string[]]; criticalServices = [string[]];
@@ -5852,6 +5852,72 @@ if ($allPass) {
   Write-Output 'Maintenance completed: ALL PASSED'
 } else {
   Write-Output 'Maintenance completed: SOME CHECKS FAILED'
+}
+
+# v1.14.3: 종료 직전 피드백 안내 + A/Y/N 전송 선택.
+#   사용자가 "검사가 끝나고 엔터를 누르면 자동으로 꺼진다"고 느끼는 지점에,
+#   바탕화면 피드백 바로가기와 아래 선택으로 의견/점검 결과를 보내면
+#   기능·문제 수정에 도움이 된다는 뉘앙스를 추가한다.
+#   A=항상 자동(설정 저장) / Y=이번만 / N=안 보냄(기본). 예약 실행에서는 묻지 않는다.
+Write-Output ''
+Write-Output (L '--------------------------------------------------' '--------------------------------------------------')
+Write-Output (L '검사가 끝났습니다.' 'Check finished.')
+Write-Output (L '바탕화면의 "자동 유지보수 피드백"이나 아래 선택으로 의견·점검 결과를 제작자에게 보낼 수 있습니다.' 'Use "Auto Maintenance Feedback" on your Desktop or the choice below to send comments or the check report to the maker.')
+Write-Output (L '보내주신 한 줄 의견도 기능 개선과 문제 수정에 큰 도움이 됩니다.' 'Even a one-line comment helps improve features and fix problems.')
+
+function Invoke-FeedbackUpload {
+  $fb = Join-Path (Split-Path -Parent $scriptRoot) 'feedback.ps1'
+  if (-not (Test-Path -LiteralPath $fb)) {
+    Write-Output (L '피드백 파일(feedback.ps1)을 찾지 못했습니다.' 'feedback.ps1 not found.')
+    return
+  }
+  Write-Output (L '피드백을 자동으로 보냅니다... (토큰 입력 불필요)' 'Sending feedback automatically... (no token entry needed)')
+  try {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fb -Yes -NoOpen 2>&1 | ForEach-Object { Write-Output $_ }
+    Write-Output (L '피드백 전송 요청이 끝났습니다. 결과는 바탕화면 "자동유지보수_피드백상태.txt" 에도 기록됩니다.' 'Feedback upload finished. See "자동유지보수_피드백상태.txt" on the Desktop for the result.')
+  } catch {
+    Write-Output ((L '피드백 전송 실패: ' 'Feedback upload failed: ') + $_.Exception.Message)
+  }
+}
+
+function Save-AutoFeedbackSetting {
+  param([string]$Value)
+  try {
+    $cfgObj = if ($config) { $config } else { [ordered]@{} }
+    if ($cfgObj -is [PSCustomObject]) {
+      $cfgObj | Add-Member -NotePropertyName 'autoFeedback' -NotePropertyValue $Value -Force
+    } else {
+      $cfgObj['autoFeedback'] = $Value
+    }
+    $cfgObj | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
+    $script:config = $cfgObj
+    Write-Output (L '앞으로 이 질문 없이 자동으로 보냅니다. (다시 묻려면 설정에서 autoFeedback 를 ask 로 바꾸세요)' 'Future checks will send automatically. (Set autoFeedback to "ask" in config.json to ask again)')
+  } catch {
+    Write-Output ((L '설정 저장 실패: ' 'Could not save setting: ') + $_.Exception.Message)
+  }
+}
+
+if ($Mode -eq 'check') {
+  $fbMode = [string](Get-ConfigProp $config 'autoFeedback')
+  if ($fbMode -eq 'always') {
+    Write-Output (L '자동 피드백 설정이 켜져 있습니다.' 'Automatic feedback is enabled.')
+    Invoke-FeedbackUpload
+  } else {
+    Write-Output ''
+    Write-Output (L '피드백을 보내시겠습니까?' 'Send feedback?')
+    Write-Output (L '  A = 항상 자동 보내기 / Y = 이번만 보내기 / N = 보내지 않기 (기본 N)' '  A = always send / Y = send this time / N = do not send (default N)')
+    try {
+      $fbAnswer = (Read-Host (L '선택 [A/Y/N]' 'Choice [A/Y/N]')).Trim().ToUpperInvariant()
+    } catch { $fbAnswer = '' }
+    if ($fbAnswer -eq 'A') {
+      Save-AutoFeedbackSetting -Value 'always'
+      Invoke-FeedbackUpload
+    } elseif ($fbAnswer -eq 'Y') {
+      Invoke-FeedbackUpload
+    } else {
+      Write-Output (L '피드백을 보내지 않습니다. 의견이 있으면 바탕화면의 "자동 유지보수 피드백"을 눌러주세요.' 'Feedback skipped. Use "Auto Maintenance Feedback" on the Desktop if you have comments.')
+    }
+  }
 }
 
 # 창 자동 닫힘 처리 (check 모드에서만, closeBehavior=N이면 Enter 대기)
