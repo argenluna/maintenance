@@ -37,7 +37,9 @@ param(
   # v1.13.0: 오래된 드라이버 판정 로직만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
   [switch]$SelfTestDrivers,
   # v1.14.6: 초보자용 결과표 매핑만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
-  [switch]$SelfTestExplain
+  [switch]$SelfTestExplain,
+  # v1.15.0: 업데이트 오류 코드 해석 함수만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
+  [switch]$SelfTestUpdateFail
 )
 
 Set-StrictMode -Version Latest
@@ -201,6 +203,7 @@ $script:newbieExplainMap = [ordered]@{
   'UPDATES'      = [pscustomobject]@{ No=37; Ko='예방접종 (업데이트와 백신)'; En='Updates (vaccinations and antivirus)'; HintKo='새 버그와 보안 구멍을 막는 예방접종입니다. 자동 설치는 기본 꺼져 있어요(몰래 재부팅하지 않게).'; HintEn='Patches for new bugs and security holes. Auto-install is off to avoid surprise reboots.' }
   'AUTOHEAL'     = [pscustomobject]@{ No=38; Ko='자동 수리공'; En='AutoHeal (the repair bot)'; HintKo='일기장을 보고 안전하게 고칠 수 있는 것만 바로 고칩니다. 같은 사건은 두 번 고치지 않아요.'; HintEn='Fixes only safe issues from the diary and never the same event twice.' }
   'OLDDRIVERS'   = [pscustomobject]@{ No=39; Ko='오래된 드라이버 설명서 정리'; En='OldDrivers (outdated driver manuals)'; HintKo='더 새 설명서가 이미 있는데 옛것이 남은 경우입니다. 쓰는 것과 부팅 필수 것은 절대 지우지 않고, 목록 보고 y 를 눌러야 지워요.'; HintEn='Old manuals with a newer one already present. In-use and boot-critical ones are never removed; y is required.' }
+  'UPDATEFAIL'   = [pscustomobject]@{ No=40; Ko='업데이트 실패 메모 (오류 코드 해석)'; En='UpdateFail (failed update notes decoded)'; HintKo='윈도우가 업데이트에 실패하며 남긴 메모를 읽어, 숫자 코드가 무슨 뜻인지 쉬운 말로 알려줍니다. 고치지는 않고 최근 30일 기록만 보여줘요.'; HintEn='Reads notes Windows left when an update failed and explains the numeric codes in plain words. It only shows the last 30 days and never changes anything.' }
   'REBOOT'       = [pscustomobject]@{ No=0;  Ko='재부팅 대기 상태'; En='Pending reboot'; HintKo='파일 교체를 위해 재부팅이 필요하다는 뜻입니다. 재부팅하면 일부 검사 결과가 더 정확해져요.'; HintEn='A reboot is pending to replace files. Results are more accurate after restarting.' }
   'ADMIN'        = [pscustomobject]@{ No=0;  Ko='관리자 권한'; En='Administrator rights'; HintKo='컴퓨터 설정을 바꿀 수 있는 권한이 있는지 확인합니다.'; HintEn='Checks whether the script has rights to change system settings.' }
 }
@@ -299,6 +302,7 @@ if ($SelfTestExplain) {
     'SecureBoot: WARN - Secure Boot 비활성',
     'WHEA: PASS - No hardware errors in last 7 days',
     'SFC: FAIL - 손상된 파일 발견',
+    'UPDATEFAIL: WARN - 최근 30일 업데이트 실패 2건 (마지막 2026-11-03): 0x80070002 = 필요한 파일을 못 찾았어요',
     'REBOOT: WARN - Pending reboot detected'
   )
   $t = Get-NewbieResultTable -Lines $fake
@@ -309,6 +313,66 @@ if ($SelfTestExplain) {
   $todoHit = @($todoTest | Where-Object { $_ -match '^\s+\*\s' }).Count
   Write-Output "SelfTestExplain: table=$hit (need>=4) todo=$todoHit (need>=1)"
   if ($hit -lt 4 -or $todoHit -lt 1) { exit 1 }
+  exit 0
+}
+
+# ============================================================
+# v1.15.0: Windows Update 오류 코드 → 쉬운 말 해석 (순수 함수 — 가상 데이터로 SelfTest 가능)
+#   근거: Microsoft 공식 "fix Windows update errors" / 0x80070002 문서의 코드 표 + 5명 조사원 공통 1순위.
+#   숫자 코드만 해석한다. DISM/sfc 등 복구 명령은 실행하지 않는다(제외 목록 준수).
+# ============================================================
+$script:updateErrorCodeMap = [ordered]@{
+  '0x80070002' = '필요한 파일을 못 찾았어요 (이전 업데이트가 덜 끝난 경우가 많아요)'
+  '0x800f081f' = '업데이트 재료가 없어요 (원본 파일이 빠졌을 때)'
+  '0x800f0831' = '업데이트 보관함이 꼬였어요'
+  '0x8007000d' = '업데이트 파일이 깨졌어요'
+  '0x80073712' = '윈도우 부품 상자가 손상됐어요'
+  '0x800736cc' = '부품 파일이 원래와 달라졌어요'
+  '0x800b0100' = '업데이트 서명 확인에 실패했어요'
+  '0x800b0101' = '업데이트 인증서 기간이 끝났어요'
+  '0x80070490' = '찾는 업데이트가 없어요'
+  '0x800f0984' = '업데이트 조립 중 문제가 생겼어요'
+  '0x800f0986' = '업데이트 조립 중 문제가 생겼어요'
+  '0x800f0982' = '업데이트 조립 중 문제가 생겼어요'
+  '0x8024002e' = 'Windows Update가 꺼져 있어요'
+  '0x800f0906' = '업데이트를 내려받지 못했어요 (네트워크/서버 문제)'
+  '0xc1900101' = '드라이버 때문에 업그레이드가 멈췄어요'
+  '0x80070306' = '사용자 프로필을 옮기다 실패했어요'
+  '0xc0000022' = '접근 권한이 없어요'
+  '0x80070643' = '설치 프로그램이 중간에 멈췄어요'
+}
+
+function Get-UpdateErrorCodeMeaning {
+  param([AllowNull()][string]$Code)
+  if ([string]::IsNullOrWhiteSpace($Code)) { return '' }
+  $norm = ([string]$Code).Trim().ToLowerInvariant()
+  # 이벤트 로그에 '0x' 없이 8자리만 오는 경우(예: 800F081F)도 받아준다.
+  if ($norm -notmatch '^0x' -and $norm -match '^[0-9a-f]{8}$') { $norm = '0x' + $norm }
+  if ($script:updateErrorCodeMap.Contains($norm)) { return [string]$script:updateErrorCodeMap[$norm] }
+  return ''
+}
+
+if ($SelfTestUpdateFail) {
+  $ufCases = @(
+    @{ Code='0x80070002'; Need='필요한 파일' },
+    @{ Code='800F081F';   Need='재료' },
+    @{ Code='0xc1900101'; Need='드라이버' },
+    @{ Code='0xdeadbeef'; Need='__EMPTY__' },
+    @{ Code=$null;        Need='__EMPTY__' }
+  )
+  $ufFail = 0
+  foreach ($c in $ufCases) {
+    $got = Get-UpdateErrorCodeMeaning -Code $c.Code
+    if ($c.Need -eq '__EMPTY__') {
+      if ([string]::IsNullOrEmpty($got)) { Write-Output "OK: $($c.Code) -> (알 수 없음)" }
+      else { Write-Output "FAIL: $($c.Code) -> $got"; $ufFail++ }
+    } else {
+      if ($got -match $c.Need) { Write-Output "OK: $($c.Code) -> $got" }
+      else { Write-Output "FAIL: $($c.Code) -> $got"; $ufFail++ }
+    }
+  }
+  Write-Output "SelfTestUpdateFail: fail=$ufFail"
+  if ($ufFail -gt 0) { exit 1 }
   exit 0
 }
 
@@ -4960,6 +5024,42 @@ try {
     $recommendations += "[Updates] 재부팅 대기 상태($($pendingRebootInfo.Reasons)) — 재부팅 후 업데이트가 마무리됨"
   } else {
     Write-LogEntry 'Updates: PASS - 재부팅 대기 없음'
+  }
+
+  # v1.15.0: 업데이트 실패 이력 + 오류 코드 해석 (읽기 전용 / 보고만)
+  #   Microsoft-Windows-WindowsUpdateClient/Operational 의 실패 이벤트(20=설치실패, 31=다운로드실패)
+  #   를 최근 30일만 읽어 숫자 코드를 쉬운 말로 해석한다. DISM/sfc 등 복구 명령은 실행하지 않는다.
+  try {
+    $ufCutoff = (Get-Date).AddDays(-30)
+    $ufEvents = @(Get-WinEvent -FilterHashtable @{
+        LogName = 'Microsoft-Windows-WindowsUpdateClient/Operational'
+        Id = 20, 31
+        StartTime = $ufCutoff
+      } -ErrorAction SilentlyContinue)
+    if ($ufEvents.Count -eq 0) {
+      Write-LogEntry 'UPDATEFAIL: PASS - 최근 30일 내 업데이트 실패 기록 없음'
+    } else {
+      # 메시지에서 0x######## 또는 8자리 hex 코드만 추출(경로/쉼표 등은 무시).
+      $ufCodes = @()
+      foreach ($ufEvt in ($ufEvents | Select-Object -First 50)) {
+        $um = [regex]::Match([string]$ufEvt.Message, '(0x[0-9a-fA-F]{8}|(?<!0x)\b[0-9a-fA-F]{8}\b)')
+        if ($um.Success) { $ufCodes += $um.Value }
+      }
+      $ufUniq = @($ufCodes | Where-Object { $_ } | Select-Object -Unique)
+      $ufDecoded = @()
+      foreach ($uc in $ufUniq) {
+        $umeaning = Get-UpdateErrorCodeMeaning -Code $uc
+        if ($umeaning) { $ufDecoded += ("{0} = {1}" -f $uc, $umeaning) }
+        else { $ufDecoded += ("{0} = (해석 없음)" -f $uc) }
+      }
+      $ufLast = $ufEvents[0].TimeCreated.ToString('yyyy-MM-dd')
+      $ufSummary = if ($ufDecoded.Count -gt 0) { (@($ufDecoded | Select-Object -First 3) -join ' / ') } else { '코드 정보 없음' }
+      Write-LogEntry ("UPDATEFAIL: WARN - 최근 30일 업데이트 실패 {0}건 (마지막 {1}): {2}" -f $ufEvents.Count, $ufLast, $ufSummary)
+      $recommendations += ("[UpdateFail] 업데이트 실패 {0}건 — 설정 > Windows Update > 업데이트 기록에서 확인" -f $ufEvents.Count)
+      foreach ($ud in @($ufDecoded | Select-Object -First 3)) { $recommendations += "  - $ud" }
+    }
+  } catch {
+    Write-LogEntry "UPDATEFAIL: SKIP - 실패 이력 확인 불가: $($_.Exception.Message)"
   }
 } catch {
   Write-LogEntry "Updates: SKIP - 확인 실패: $($_.Exception.Message)"
