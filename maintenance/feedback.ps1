@@ -495,6 +495,12 @@ $out += (L "식별자: $pcTag  (머신 GUID 원본은 올리지 않고 해시 �
 $out += (L "CPU: $cpuName" "CPU: $cpuName")
 $out += (L "GPU: $gpuName" "GPU: $gpuName")
 $out += ''
+# v1.14.7: 초보자용 결과표가 들어 있는 보고서는 업로드 본문에서도 바로 찾을 수 있게 표시한다.
+#   (마스킹된 본문을 기준으로 판단하므로 실제 올라가는 내용과 항상 일치한다.)
+if ($safeText -match '\[\s*초보자용 결과표\s*\]|\[\s*Easy-to-read results\s*\]') {
+  $out += (L 'ℹ️ 이 보고서에는 초보자용 결과표가 들어 있습니다. 아래 [ 초보자용 결과표 ] 를 먼저 보세요.' 'ℹ️ This report includes an easy-to-read results table. See [ Easy-to-read results ] below first.')
+  $out += ''
+}
 $out += (L '[ 올리기 전에 - 30초만 확인해 주세요 ]' '[ Before posting - please review for 30 seconds ]')
 $out += (L ' 1. 이 파일은 민감정보와 위험 코드를 자동으로 지웠습니다. 그래도 한 번 훑어보세요.' ' 1. Sensitive info and risky code were removed automatically. Please still give it a quick look.')
 $out += (L '    (하드웨어 모델명/드라이버 버전은 진단용으로 남아 있습니다. 민감하면 지우세요.)' '    (Hardware model/driver versions are kept for diagnosis. Delete them if sensitive.)')

@@ -1738,7 +1738,11 @@ if ($Mode -eq 'check') {
 # === v1.14.6: 결과 설명 수준을 첫 대화형 점검에서만 묻고 config 에 고정 ===
 #   사람이 없는 예약/유휴 실행에서는 절대 묻지 않고 저장된 값을 그대로 쓴다.
 #   기본(미선택/답변 없음)은 expert — 기술 로그를 그대로 보여준다.
-$canAskExplain = (($Mode -eq 'check') -or $PromptForDelete) -and [Environment]::UserInteractive -and -not [Console]::IsOutputRedirected
+# v1.14.7: 사람이 창을 보고 있는 실행인지 한 곳에서 판정한다.
+#   -Mode check 직접 실행 / 바탕화면 "지금 점검"(-PromptForDelete) 만 해당.
+#   진짜 예약 실행(사람 없음)은 질문도, 자동 업로드도 절대 하지 않는다.
+$script:canPromptUser = (($Mode -eq 'check') -or $PromptForDelete) -and [Environment]::UserInteractive -and -not [Console]::IsOutputRedirected
+$canAskExplain = $script:canPromptUser
 $explainSaved = [string](Get-Cfg 'explainMode')
 if ($explainSaved -eq 'beginner') {
   $script:explainNewbie = $true
@@ -6108,7 +6112,8 @@ Write-Output ''
 Write-Output (L '--------------------------------------------------' '--------------------------------------------------')
 Write-Output (L '검사가 끝났습니다.' 'Check finished.')
 Write-Output (L '의견을 남기시고 싶으면 바탕화면의 "자동 유지보수 피드백"을 실행해 보고서와 함께 기능 추가·개선 방향을 남겨주세요.' 'To leave a comment, run "Auto Maintenance Feedback" on your Desktop and write feature requests or improvements along with the report.')
-Write-Output (L '보내주신 의견은 기능 개선과 문제 수정에 큰 도움이 됩니다. 아래 선택은 보고서만 간편하게 보냅니다.' 'Your comments help improve features and fix problems. The choice below sends just the report.')
+Write-Output (L '보내주신 의견은 기능 개선과 문제 수정에 큰 도움이 됩니다. 아래 선택은 보고서를 GitHub 에 바로 올립니다.' 'Your comments help improve features and fix problems. The choice below uploads the report to GitHub right away.')
+Write-Output (L '  A 를 한 번 누르면 앞으로 질문 없이 점검 끝날 때마다 자동으로 올라갑니다. (예약 실행은 올리지 않습니다)' '  Press A once and future checks upload automatically with no question. (Scheduled runs never upload)')
 
 function Invoke-FeedbackUpload {
   $fb = Join-Path (Split-Path -Parent $scriptRoot) 'feedback.ps1'
@@ -6142,7 +6147,9 @@ function Save-AutoFeedbackSetting {
   }
 }
 
-if ($Mode -eq 'check') {
+# v1.14.7: 바탕화면 "지금 점검"(-PromptForDelete 포함)에서도 선택창이 뜨도록 확대.
+#   진짜 예약 실행은 $script:canPromptUser 가 false 라서 아무것도 묻지 않고 올리지도 않는다.
+if ($script:canPromptUser) {
   $fbMode = [string](Get-ConfigProp $config 'autoFeedback')
   if ($fbMode -eq 'always') {
     Write-Output (L '자동 피드백 설정이 켜져 있습니다.' 'Automatic feedback is enabled.')

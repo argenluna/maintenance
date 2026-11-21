@@ -3,6 +3,7 @@
   "schedule": false,
   "logToFile": false,
   "closeBehavior": "none",
+  "autoFeedback": "",
   "registerTask": false,
   "enableLogging": false,
   "maintenanceCadenceHours": 144,
