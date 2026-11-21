@@ -39,6 +39,7 @@ $maint = Join-Path $sm 'maintenance.ps1'
 $runNow = Join-Path $root 'run-now.ps1'
 $uninstall = Join-Path $root 'uninstall.ps1'
 $feedback = Join-Path $root 'feedback.ps1'
+
 $launcher = Join-Path $root 'install.cmd'
 $taskName = 'OpenCode-Maintenance'
 

@@ -128,23 +128,23 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\verify-helper-pari
 > 확인 위치: 바탕화면 `자동유지보수_*.txt`, 로그는 `logs\runner-YYYY-MM.log`(wrapper) 와
 > `Simple maintenance\logs\maintain-YYYY-MM-DD.log`(본체). 결과 txt 가 없으면 이 두 로그를 보내면 원인을 알 수 있다.
 
-## 버전 (현재 **v1.15.2**, 2026-11-21)
+## 버전 (현재 **v 1.17.02**, 2026-11-21)
 
 수정할 때마다 버전을 올린다. **`VERSION` 파일(킷 루트)이 유일한 기준**이고, 각 스크립트가 이 파일을 읽어
 콘솔·결과 txt·로그에 찍는다. "친구 PC에서 어느 버전이 돌았는지"를 파일만 보고 확인할 수 있다.
 
 ```
 VERSION 파일 (2줄)
-  1.15.2
+  1.17.02
   2026-11-21
 ```
 
 | 확인 위치 | 표시 예 |
 |--------|---------|
-| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v1.15.2 (2026-11-21)` |
-| 결과 txt | `실행: 2026-11-21 12:30` 아래 `버전: v1.15.2 (2026-11-21)` (영어권 `Run:` / `Version:`) |
-| 실패/안내 txt | `버전: v1.15.2 (2026-11-21)` |
-| 로그 | `maintain-*.log` → `VERSION: v1.15.2 (2026-11-21)`, `runner-*.log` → `Kit version: …` |
+| "지금 점검" 콘솔 | `자동 유지보수 점검 (지금 실행)` / `v 1.17.00 (2026-11-21)` |
+| 결과 txt | `실행: 2026-11-21 12:30` 아래 `버전: v 1.17.00 (2026-11-21)` (영어권 `Run:` / `Version:`) |
+| 실패/안내 txt | `버전: v 1.17.00 (2026-11-21)` |
+| 로그 | `maintain-*.log` → `VERSION: v 1.17.00 (2026-11-21)`, `runner-*.log` → `Kit version: …` |
 | JSON | `status.json`, `Simple maintenance\last-result.json` 의 `version` |
 | 설치 폴더 | `VERSION` 파일 |
 
@@ -183,9 +183,11 @@ VERSION 파일 (2줄)
 | 1.14.6 | 2026-11-21 | **결과 설명 수준 한 번 선택 + 초보자용 결과표** — 첫 대화형 점검에서 "컴퓨터를 잘 아시나요? Y/N"을 한 번만 묻고 `config.json`의 `explainMode`에 고정. `N`이면 `newbie.txt`의 39개 비유를 실제 검사 결과에 연결한 `[ 초보자용 결과표 ]`와 쉽게 풀어 쓴 `[ 직접 확인할 부분 ]`을 화면·결과 txt에 출력. 예약 실행은 질문 없이 저장값 사용. 기술 로그·피드백 마스킹은 그대로 |
 | 1.14.7 | 2026-11-21 | **보고서 자동 업로드 연결 + 안내 문구 + 뉴비 보고서 표기** — 바탕화면 "지금 점검"(`-PromptForDelete`)에서도 종료 시 A/Y/N 전송 선택이 뜨고, `A`를 한 번 누르면 `autoFeedback='always'` 저장 후 이후 질문 없이 자동 업로드. 진짜 예약 실행은 사람이 없으므로 묻지도 올리지도 않음. 종료 화면·시작 화면에 전송 안내 명확화. 초보자용 결과표가 든 보고서는 GitHub 본문 상단에도 안내 줄 추가. |
 | 1.14.8 | 2026-11-21 | **`always`면 예약 실행도 자동 업로드 + 업로드 원본 버그 수정** — A를 한 번 누르면 `autoFeedback='always'`가 저장되고, 이후 **예약 실행(사람 없음)에서도 질문 없이 보고서가 자동 업로드**된다(질문은 사람이 있을 때만). `feedback.ps1`에 `-NoPause` 추가해 창 없는 예약 실행에서 Enter 대기로 멈추던 문제 해결. 피드백 원본 고를 때 `자동유지보수_업데이트상태.txt`를 점검 결과로 오인하던 버그 수정. |
-| 1.15.0 | 2026-11-21 | **업데이트 실패 이력 읽기 + 오류 코드 해석(보고만)** — Microsoft 공식 오류 코드 표를 근거로, 최근 30일 `Microsoft-Windows-WindowsUpdateClient` 설치/다운로드 실패 이벤트(20/31)를 읽어 `0x80070002` 같은 숫자를 쉬운 말로 해석해 결과표·권고에 표시. **복구 명령(DISM/sfc)은 절대 실행하지 않고 읽기만 함.** 초보자용 결과표에 `[40] 업데이트 실패 메모` 항목 추가, `newbie.txt` 40개 설명 동기화, `-SelfTestUpdateFail` 회귀 검증 추가. |
+| 1.15.0 | 2026-11-21 | **업데이트 실패 이력 읽기 + 오류 코드 해석(보고만)** — Microsoft 공식 오류 코드 표를 근거로, 최근 30일 `Microsoft-Windows-WindowsUpdateClient` 설치/다운로드 실패 이벤트(20/31)를 읽어 `0x80070002` 같은 숫자를 쉬운 말로 해석해 결과표·권고에 표시. 이 기능(업데이트 실패 이력 해석) 자체는 복구 명령을 실행하지 않고 읽기만 함. 단, 메인 점검의 SFC 단계는 별도로 위반 발견 시 `sfc /scannow` 복구를 실행해 왔음(2026-11-16~, 복원 지점 생성 후) — v 1.17.03(W3 예약)에서 "복구 명령 미실행" 문구를 실제 동작과 맞게 정리. 초보자용 결과표에 `[40] 업데이트 실패 메모` 항목 추가, `newbie.txt` 40개 설명 동기화, `-SelfTestUpdateFail` 회귀 검증 추가. |
 | 1.15.1 | 2026-11-21 | **3단계 검증 배포 + 미리 해보기 채널** — 예약일 2주 전 로컬 설치 검증 → 1주 전 RC(`vX.Y.Z-rcN`) 공개·매일 미리검증 → 예약일 안정본 공개·자동업데이트. 안내창에 `[ 현 버전 다운로드 ]`(안정화된 기능 + 추가된 기능 n가지)와 아래 작은 **미리 해보기** 버튼(RC = "이런 기능이 준비 중", 문제 시 제작자 연락, 최소 로컬 검증 완료)을 표시. RC 는 예약 작업이 절대 설치하지 않고, 누르면 별도 canary 폴더 + 전용 바로가기만 만들어 현재 설치본을 건드리지 않음. `PreVerify.ps1`(ZIP 미포함)이 RC 의 파일/구문/BOM/VERSION/회귀 SelfTest 를 매일 검사해 바탕화면 `자동유지보수_미리검증결과.txt` 에 보고. |
-| 1.15.2 | 2026-11-21 | **피드백 개인정보 범위·후속 수정 안내** — 피드백 파일·동의 질문·점검 종료 화면·`newbie.txt` 에 "오류 확인용으로 CPU 모델·GPU 모델만 올라가고 이름·경로·시리얼·IP 등은 자동 삭제(보고서 구분용 해시 6자리 포함)", "보내주신 문제는 대부분 다음 버전에서 수정" 문구 추가. |
+| 1.15.2 | 2026-11-21 | **피드백 개인정보 범위·후속 수정 안내** — 피드백 파일·동의 질문·점검 종료 화면·`newbie.txt` 에 "식별정보는 마스킹하고 진단용 점검 결과 전체를 올리며(보고서 구분용 해시 6자리 포함), 업로드 사본만 마스킹된다", "보내주신 문제는 대부분 다음 버전에서 수정" 문구 추가. |
+| 1.17.02-p1 | 2026-11-21 (즉시 패치) | **코드 찌꺼기 정리** — 이전 설치본에서 이어받은 `config.json` 의 `watchedTasks` 에 이미 빠져야 할 `\\OpenCode-ReplayCleanup-3mo` 가 남아 있던 것을 제거(config.json·maintenance.ps1·install.ps1·설치본). Replay 정리 스크립트·예약 작업·3개월 조건은 변경 없이 이 PC에서만 계속 동작하며, 키트는 이 작업을 감시하지 않음. |
+| 1.17.00 | 2026-11-21 (구현, W3 예약) | **복구를 '자동 유지보수 점검'에 통합** · 별도 바로가기 없음(기존 복구 바로가기는 설치 시 정리) · 메인 점검이 DISM/SFC 스캔을 마친 뒤 종료 직전에 `복구.ps1`을 `-FromMaintenance` 로 호출(재스캔 없음) · 첫 질문 "현재 DISM 복구 명령이 필요합니다. 실행하시겠습니까?" · 문제 난 항목만 대응 복구(`RestoreHealth`/`StartComponentCleanup`/`RevertPendingActions`/`scannow`) Y/N · 문제 없으면 복구 단계 자체를 건너뜀 · 메인 점검에서 권고만 하던 명령을 번호 선택 + Y/N 으로 실행 가능(안전 10 / 주의 15, 주의는 복원 지점 생성) · 되돌릴 수 없는 `/ResetBase`·`w32tm /unregister`·`catroot2` 삭제·로그 초기화·BitLocker 해제는 안내만 · 사람 없는 예약 실행은 질문·실행 모두 안 함 · 버전 표기 `v 1.17.00` zero-padding 도입(GitHub 태그 `v1.17.00`, 자동업데이트 비교 로직은 다음 버전부터 변경) · `-SelfTest` 11케이스 + 카탈로그 검증 통과 |
 
 ## 바탕화면 결과 파일 정리 + 자동 실행 콘솔 표시 (2026-11-17, v1.3.0 / v1.4.0)
 
@@ -332,13 +334,15 @@ wrapper는 `status.json`(마지막 **시작** 시각), 내부 스크립트는 `.
 | Recovery | WinRE 비활성(`reagentc /info`) | `reagentc /enable` 후 재확인 (**추가**) |
 | WMI | 리포지토리 `inconsistent` | `winmgmt /salvagerepository` 후 재확인 (**추가**) |
 | Updates | 대기 업데이트 존재 + `autoInstallUpdates: true` | 다운로드/설치 (**옵션, 기본 꺼짐**) |
-| Auto-Heal | 이벤트 목록의 자동 복구 가능 항목 | 기존 복구 동작(스풀러/검색/방화벽/WMI/TPM 등) |
+| Auto-Heal | 이벤트 목록의 자동 복구 가능 항목 | 기존 복구 동작(스풀러 대기문서/검색/방화벽/WMI/TPM 등). 스풀러 대기문서 정리는 인쇄 미사용 환경의 찌꺼기 정리로 사용자 승인(예약 실행도 무질문) |
 
 보고만 하는 단계: `CertStore`(인증서 갱신은 소유자 판단), `TaskHealth`(예약 작업 재등록은 스크립트별 인수·트리거가
 달라 위험), `SecureBoot`(BIOS 설정 변경 불가). 셋 다 문제가 있으면 `recommendations` 에 남는다.
 
+> `Replay Cleanup\replay_cleanup.ps1` 은 키트 배포 대상이 아니라 **이 PC 전용 별도 유틸리티**다. `watchedTasks` 에서 제외했으므로 키트는 이 작업의 상태를 보고하지 않는다.
+
 **자동화하지 않는 것(권고만)**: `catroot2`/SoftwareDistribution 삭제, `netsh int ip reset`,
-`ipconfig /release`, `WlanSvc` 재시작, SFC/DISM 강제 복구, `wsreset`, Defender 전체 검사,
+`ipconfig /release`, `WlanSvc` 재시작, DISM `RestoreHealth`/`ResetBase`, `wsreset`, Defender 전체 검사,
 NTP 피어 재설정 시 `w32tm /unregister`, 드라이버 강제 제거, 유령 장치 삭제,
 `winmgmt /resetrepository`(리포지토리 파괴적 재생성), `reagentc /disable`, Secure Boot/TPM 설정 변경,
 인증서 삭제·갱신(소유자 판단 필요) — 되돌릴 수 없거나 무효/위험한 조치.
@@ -594,7 +598,7 @@ Y는 현재 삭제, N은 거부야."**
 - 새로 자동화한 것: `ScheduledDefrag` Disabled → 재활성화, NTP 오차 ≥1초 → `w32tm /resync /force` + 재측정,
   `wuauserv` Disabled → Manual, WU 검색 실패 → 관련 서비스 시작 후 재검색, Defender 서명 >3일 → `Update-MpSignature`.
 - 옵션 `autoInstallUpdates`(기본 false): 대기 업데이트 자동 다운로드/설치. 재부팅 대기 중이면 건너뛴다.
-- 기존 자동 복구(서비스/VSS/임시파일/캐시/휴지통/pip·conda/SysFix/Auto-Heal)도 모두 `autoFixes` 에 집계된다.
+- 기존 자동 복구(서비스/VSS/임시파일/캐시/휴지통/pip·conda/SysFix/Auto-Heal)도 모두 `autoFixes` 에 집계된다. 스풀러 대기문서 정리는 "인쇄 미사용 환경의 미출력 찌꺼기"로 사용자가 승인한 예외다(예약 실행 포함).
 - **시간 동기화 사고 수정**: `w32tm /unregister` 제거(서비스 등록이 삭제됨), 서비스가 멈춘 상태의
   오류 문자열을 "정상 소스"로 오인하던 버그 수정. 복구 후 `Running/Automatic` + 소스 `kr.pool.ntp.org` 확인.
 
@@ -738,6 +742,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 | `adDnsEnabled` | `false` | DNS 필터링 (**opt-in**) |
 | `adDnsServers` | `["94.140.14.14","94.140.15.15"]` | AdGuard DNS(광고+트래커). IPv4 만 허용 |
 
+## 점검 끝에 이어지는 복구 (W3 예약 — 구현 완료 — v 1.17.03) — 스캔은 메인 점검, 질문은 종료 직전
+
+**별도 바로가기를 만들지 않습니다.** 바탕화면 **"자동 유지보수 점검"** 을 실행하면, 메인 점검이 DISM/SFC 스캔을 마친 뒤 **종료 직전에** `복구.ps1` 이 이어서 실행됩니다.
+
+- **스캔은 한 번만**: 메인 점검이 이미 `sfc /verifyonly` + DISM `ScanHealth`/`AnalyzeComponentStore` 등을 수행합니다. 복구 단계는 **재스캔하지 않고**(`-FromMaintenance`) 메인 점검에서 발견된 문제만 받습니다.
+- **첫 질문**: `현재 DISM 복구 명령이 필요합니다. 실행하시겠습니까?` 로 시작합니다. `Y` 를 누르면 해당 복구 명령을 실행합니다.
+  | 점검에서 발견된 문제 | 제시되는 복구 | 명령 |
+  |---|---|---|
+  | 구성 저장소 손상 | 구성 저장소 복구 | `DISM /Online /Cleanup-Image /RestoreHealth` |
+  | 정리 필요 | 구성 저장소 정리 | `DISM /Online /Cleanup-Image /StartComponentCleanup` |
+  | 시스템 파일 무결성 위반 | 시스템 파일 복구 | `sfc /scannow` |
+  | 보류 중인 작업 | 되돌리기 | `DISM /Online /Cleanup-Image /RevertPendingActions` |
+- **문제가 없으면 복구 단계 자체를 건너뜁니다** (질문도 실행도 없음).
+- **직접 선택**: 이어서 메인 점검에서 "권고만"으로 남기던 명령 25개를 번호로 골라 Y/N 실행할 수 있습니다. 여러 개는 콤마로 구분하고, Enter 만 누르면 아무것도 하지 않습니다.
+  - **안전(10개)**: DNS 캐시 비우기/재등록, 시간 상태 보기/다시 맞추기, Store 캐시 초기화, 성능 카운터 재등록, `chkdsk /scan`(읽기), WMI 검사, WinRE 상태, 백신 서명 업데이트.
+  - **주의(15개, 실행 전 복원 지점 생성)**: IP 재발급, `netsh int ip reset`+`winsock reset`, 방화벽 기본값, 업데이트 다운로드 임시 정리(catroot2는 건드리지 않음), WMI salvage/reset, WinRE 재등록, 프린트 대기열, 검색 재시작, WinRM, `chkdsk /f`, RestoreHealth, RevertPendingActions, StartComponentCleanup, scannow.
+- **실행 금지(안내만, 5개)**: `DISM /ResetBase`(롤백 불가), `w32tm /unregister`(2026-11-06 실제 사고), `catroot2` 전체 삭제, `wevtutil cl`(로그 초기화), `manage-bde -protectors -disable`(BitLocker 해제). 화면에 명령만 보여주고 실행하지 않습니다.
+- **안전 게이트**: 사람이 없는 예약 실행에서는 질문도 실행도 하지 않습니다.
+- 결과는 바탕화면 `자동유지보수_복구결과.txt` 에 저장됩니다.
+- 검증: `powershell -File 복구.ps1 -SelfTest` (판정 11케이스 + 카탈로그 검증), `-DryRun` (단독 흐름), `-DryRun -FromMaintenance -DetectedIssues restorehealth` (통합 흐름), `-DryRun -FakeIssue restorehealth` (문제 주입). SelfTest 결과 `checks=4 fixes=4 extra=25 blocked=5 fail=0`.
+
 ## 피드백 내보내기 (v1.6.0) — GitHub 자동 업로드 + 시스템 언어 추종
 
 바탕화면의 **"자동 유지보수 피드백"** 바로가기를 누르면 `feedback.ps1` 이 실행되어
@@ -752,8 +777,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "I:\code\maintenance\uninsta
 
 ### 업로드되는 내 컴퓨터 정보 (v1.15.2 안내)
 
-오류 확인용으로 **CPU 모델과 GPU 모델만** 올라갑니다. 이름·경로·시리얼·IP 등 개인정보는 자동으로 지우고,
-보고서를 서로 구분하기 위한 **해시 앞 6자리**만 함께 올라갑니다(원본 머신 GUID는 올리지 않음).
+오류 확인용으로 **CPU 모델과 GPU 모델**을 비롯해 **식별정보를 마스킹한 점검 결과 전체**(드라이버 버전 포함)가 올라갑니다. 이름·경로·시리얼·IP 등 식별정보는 자동으로 지우고,
+보고서를 서로 구분하기 위한 **해시 앞 6자리**만 함께 올라갑니다(원본 머신 GUID는 올리지 않음). **업로드 사본만 마스킹되므로 이 PC의 결과 txt·로그에는 원문 경로가 남습니다.**
 보내주신 문제는 **대부분 다음 버전에서 수정**됩니다. 이 안내는 피드백 파일, 동의 질문, 점검 종료 화면, `newbie.txt` 에 모두 표시됩니다.
 
 ### 3중 안전장치
