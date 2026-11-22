@@ -293,6 +293,19 @@ function Get-NewbieTodoSection {
   return $out
 }
 
+# W1 #3: WPP(Windows 보호 인쇄 모드) — 별도 "향후 기능 안내" 섹션에서만 보여준다.
+#   ⚠ 검사 화면/Write-TestHeader 에 WPP 항목이나 ON/OFF 상태를 절대 표기하지 않는다.
+#   ⚠ 날짜·SKU 특정 금지. 키트는 WPP 를 켜거나 끄지 않고, 상태도 확인하지 않는다(레지스트리/상태 쓰기 없음).
+function Get-WppNoticeSection {
+  $out = @()
+  $out += L '--- 향후 기능 안내 (WPP / Windows 보호 인쇄 모드) ---' '--- Upcoming feature notice (WPP / Windows Protected Print Mode) ---'
+  $out += L '이런 기능이 추가될 예정입니다: Windows 보호 인쇄 모드(WPP) — 제조사 드라이버 없이 표준(Mopria/IPP) 방식으로 인쇄하고 인쇄 스택을 커널 밖에 격리해 보안을 강화합니다.' 'A feature is planned: Windows Protected Print Mode (WPP) - print using standard Mopria/IPP without vendor drivers, isolating the print stack outside the kernel for stronger security.'
+  $out += L '아직 일정은 미정입니다 (정확한 날짜·대상 SKU는 공개되지 않았습니다).' 'The schedule is not decided yet (no exact date or target SKU has been announced).'
+  $out += L '관련 내용은 출시 후 이 프로그램에서도 업데이트될 예정입니다.' 'Related details will be delivered through an update to this program after release.'
+  $out += L '(현재 버전은 WPP 를 켜거나 끄지 않으며, 상태도 확인하지 않습니다.)' '(This version does not turn WPP on or off and does not check its status.)'
+  return $out
+}
+
 # v1.14.6: 결과표 매핑 자체검사 (전체 점검 없이 검증). 가상 로그 라벨이 비유로 바뀌는지 확인한다.
 if ($SelfTestExplain) {
   $fake = @(
@@ -340,6 +353,8 @@ $script:updateErrorCodeMap = [ordered]@{
   '0x80070306' = '사용자 프로필을 옮기다 실패했어요'
   '0xc0000022' = '접근 권한이 없어요'
   '0x80070643' = '설치 프로그램이 중간에 멈췄어요'
+  # W1 #1: NTSTATUS 범용 코드 — WU 오류(0x800…)와 접두부가 다르다. 단일 원인 귀속 금지.
+  '0xc000000d' = 'STATUS_INVALID_PARAMETER — 범용 코드, 문맥 확인 필요, 단정 금지 (NTSTATUS 오류 감지, 최근 변경 이력 확인)'
 }
 
 function Get-UpdateErrorCodeMeaning {
@@ -350,6 +365,118 @@ function Get-UpdateErrorCodeMeaning {
   if ($norm -notmatch '^0x' -and $norm -match '^[0-9a-f]{8}$') { $norm = '0x' + $norm }
   if ($script:updateErrorCodeMap.Contains($norm)) { return [string]$script:updateErrorCodeMap[$norm] }
   return ''
+}
+
+# W1 #1: 0xC000000D 는 "잘못된 파라미터"라는 범용 NTSTATUS 다. 코드 단독으로 원인을 단정하지 않는다.
+#   UPDATEFAIL 블록에서 이 코드가 보이면 아래 진단 안내를 출력한다(읽기 전용 / 복구 명령 실행 없음).
+#   동반 이벤트(41/1001/7000)의 실제 ID, 최근 KB 는 "읽을 수 있으면 실제 값"을,
+#   읽지 못하면 "직접 확인 경로"를 표시한다. 드라이버·BIOS·XMP·AVD·관리자보호는 안내만.
+function Get-C000000DContextLines {
+  $out = @()
+  $out += L '  [0xC000000D 범용 코드 진단] STATUS_INVALID_PARAMETER — 범용 코드, 문맥 확인 필요, 단정 금지' '  [0xC000000D generic code] STATUS_INVALID_PARAMETER - generic code, check context, no single-cause conclusion'
+  $out += L '  문제 정의: 잘못된 값이 함수/서비스에 전달됨. 코드 단독으로 원인을 단정할 수 없습니다(하드코드 금지, 빌드별 확인).' '  Definition: an invalid parameter was passed to a service or function. The code alone cannot prove a cause (no hardcoding; verify per build).'
+
+  # ① 동반 이벤트 — System 로그 41/1001/7000 중 0xc000000d 가 적힌 것의 실제 ID
+  $compIds = @()
+  try {
+    $compIds = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 41, 1001, 7000 } -MaxEvents 20 -ErrorAction SilentlyContinue |
+                 Where-Object { [string]$_.Message -match '(?i)0xc000000d' } |
+                 ForEach-Object { [int]$_.Id } | Sort-Object -Unique)
+  } catch { }
+  if ($compIds.Count -gt 0) {
+    $out += (L '  ① 동반 이벤트: System 로그에서 0xC000000D 와 함께 기록된 이벤트 ID = {0} (41=전원/커널, 1001=드라이버/메모리, 7000=서비스)' '  ① Companion events: event IDs recorded with 0xC000000D in the System log = {0} (41=power/kernel, 1001=driver/memory, 7000=service)') -f ($compIds -join '/')
+  } else {
+    $out += L "  ① 동반 이벤트: 이번 조회에서 동반 이벤트를 읽지 못했습니다. 직접 확인 경로 → 이벤트 뷰어 > Windows 로그 > 시스템, 또는 Get-WinEvent -FilterHashtable @{LogName='System'; Id=41,1001,7000} -MaxEvents 20" "  ① Companion events: none readable this run. Check manually -> Event Viewer > Windows Logs > System, or Get-WinEvent -FilterHashtable @{LogName='System'; Id=41,1001,7000} -MaxEvents 20"
+  }
+
+  # ② 직전 변경 이력 — 최근 설치 KB(실제 값) + 키트가 못 읽는 변경은 안내
+  $kbLine = ''
+  try {
+    $kbs = @(Get-HotFix -ErrorAction SilentlyContinue | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 5)
+    if ($kbs.Count -gt 0) { $kbLine = (@($kbs | ForEach-Object { '{0}({1:yyyy-MM-dd})' -f $_.HotFixID, $_.InstalledOn }) -join ', ') }
+  } catch { }
+  if ($kbLine) {
+    $out += (L '  ② 직전 변경 이력 — 최근 설치 KB: {0}' '  ② Recent changes - latest installed KBs: {0}') -f $kbLine
+  } else {
+    $out += L '  ② 직전 변경 이력: 최근 KB를 읽지 못했습니다. 직접 확인 경로 → 설정 > Windows Update > 업데이트 기록' '  ② Recent changes: KBs not readable. Check manually -> Settings > Windows Update > Update history'
+  }
+  $out += L '     드라이버 교체·BIOS/XMP·오버클럭 변경은 키트가 읽을 수 없어 안내만 합니다(장치 관리자/BIOS 유틸에서 직접 확인).' '     Driver, BIOS/XMP and overclock changes cannot be read by the kit; guidance only (check Device Manager / BIOS utility).'
+
+  # ③ 문맥별 분기 — 기존 WHEA(#1), 4개 서비스 표(#5)와 연결하고 나머지는 안내만
+  $out += L '  ③ 문맥별 분기: WHEA Event 18(이전 검사) + 아래 [Core WU Services] 표를 함께 보세요. AVD·관리자 보호·BIOS·XMP는 안내만 합니다.' '  ③ Context branches: review WHEA Event 18 (earlier check) + the [Core WU Services] table below. AVD, admin protection, BIOS and XMP are guidance only.'
+  $out += L '     · 폰트/캐시 스냅샷은 이 코드와 인과가 없으니 배제합니다.' '     - Font/cache snapshots are unrelated to this code and are excluded.'
+
+  # 원인별 해결 경로 — 전부 안내만(자동 실행 없음)
+  $out += L '  원인별 해결 경로(안내만, 자동 실행 없음):' '  Cause-based paths (guidance only, no automatic execution):'
+  $out += L '     · 41 전원/커널: 전원 케이블·멀티탭 확인, PSU Idle Control, XMP/오버클럭 OFF 후 재부팅, BIOS/칩셋 드라이버 업데이트' '     - 41 power/kernel: check power cable and surge strip, PSU Idle Control, disable XMP/overclock and reboot, update BIOS/chipset drivers'
+  $out += L '     · 1001 드라이버/메모리: pnputil /enum-drivers 로 최근 드라이버 확인 → 백업 후 롤백, mdsched.exe, WHEA Event 18 원인(BIOS/칩셋/PSU/XMP)' '     - 1001 driver/memory: pnputil /enum-drivers for recent drivers, roll back after backup, mdsched.exe, WHEA Event 18 causes (BIOS/chipset/PSU/XMP)'
+  $out += L '     · 7000 서비스 설정: sc qc <서비스> 로 시작 유형·계정 권한 확인, 최근 정책/레지스트리 변경 되돌리기' '     - 7000 service config: sc qc <service> for start type and account rights, revert recent policy/registry changes'
+  $out += L '     · 관리자 보호/토큰: 해당 KB 설치 여부, whoami /groups, 알려진 이슈면 공식 release health 링크 확인' '     - Admin protection/token: check the relevant KB, whoami /groups, official release health link for known issues'
+  $out += L '     · AVD 세션: RemoteConnectionManager 로그, 세션 재연결, RDP 구성 확인' '     - AVD session: RemoteConnectionManager log, reconnect the session, check RDP configuration'
+  $out += L '  → 키트는 레지스트리 수정·복구 명령을 자동 실행하지 않습니다. 사람이 보고 결정하세요.' '  -> The kit never runs registry edits or recovery commands. Review and decide yourself.'
+  return $out
+}
+
+# W1 #4: 업데이트 파이프라인 3단 요약 (스캔/다운로드/설치). 읽기 전용 — 이벤트 ID만 시간순으로 판독하고
+#   서버 URL·호스트명·메시지 전문은 기록하지 않는다. "마지막 이벤트만 보고 단정 금지" 원칙을 지킨다.
+function Get-UpdatePipelineLines {
+  param([int]$LookbackDays = 7)
+  $out = @()
+  $events = @()
+  try {
+    $events = @(Get-WinEvent -FilterHashtable @{
+        LogName = 'Microsoft-Windows-WindowsUpdateClient/Operational'
+        StartTime = (Get-Date).AddDays(-$LookbackDays)
+      } -ErrorAction SilentlyContinue)
+  } catch { }
+  if ($events.Count -eq 0) {
+    $out += L '  [업데이트 파이프라인 3단 요약] 최근 이벤트가 없어 단계를 판별할 수 없습니다.' '  [Update pipeline 3-stage summary] No recent events; stages cannot be determined.'
+    return $out
+  }
+  $events = @($events | Sort-Object TimeCreated -Descending)
+
+  $stageOf = {
+    param($e)
+    $id = [int]$e.Id
+    $msg = [string]$e.Message
+    if (($id -ge 100 -and $id -lt 200) -or $msg -match '(?i)검색|스캔|search|scanning|detecting') { return 'scan' }
+    if ($id -in 30, 31 -or $msg -match '(?i)다운로드|download') { return 'download' }
+    if ($id -in 19, 20, 25, 43 -or $msg -match '(?i)설치|install') { return 'install' }
+    return 'other'
+  }
+  $stageNames = [ordered]@{
+    scan     = L '스캔(검색)' 'Scan'
+    download = L '다운로드'   'Download'
+    install  = L '설치'       'Install'
+  }
+  $out += L '  [업데이트 파이프라인 3단 요약 — 마지막 스캔 / 다운로드 / 설치]' '  [Update pipeline 3-stage summary - last scan / download / install]'
+  foreach ($st in @('scan', 'download', 'install')) {
+    $se = @($events | Where-Object { (& $stageOf $_) -eq $st })
+    if ($se.Count -eq 0) {
+      $out += ('    {0}: {1}' -f $stageNames[$st], (L '기록 없음' 'no record'))
+      continue
+    }
+    $newest = $se[0]
+    $failed = ([string]$newest.LevelDisplayName -match '(?i)error|오류' -or [int]$newest.Id -in 20, 31)
+    $state = if ($failed) { L '실패' 'failed' } else { L '성공/진행' 'success / in progress' }
+    $lvl = if ($newest.LevelDisplayName) { [string]$newest.LevelDisplayName } else { '-' }
+    $out += ('    {0}: {1} — {2} (이벤트 ID {3}, {4})' -f $stageNames[$st], $newest.TimeCreated.ToString('yyyy-MM-dd HH:mm'), $state, $newest.Id, $lvl)
+  }
+
+  # "스캔 성공 후 다운로드 실패" 별도 경고 (단정 아님 — 시간순 확인 필요)
+  $dlFail = @($events | Where-Object { [int]$_.Id -eq 31 -or ([string]$_.Message -match '(?i)다운로드.*실패|download.*fail') })
+  $instOk = @($events | Where-Object { [int]$_.Id -eq 19 -or ([string]$_.Message -match '(?i)설치.*성공|install.*success') })
+  if ($dlFail.Count -gt 0 -and $instOk.Count -eq 0) {
+    $out += L '  ⚠ 별도 경고: 스캔은 성공했으나 다운로드가 막힌 패턴이 의심됩니다(단정 아님 — 시간순 이벤트 확인 필요).' '  ! Warning: a scan may have succeeded while downloads were blocked (not conclusive - verify time-ordered events).'
+  }
+
+  # 단계별 원인·해결 경로(안내만). 키트가 고칠 수 있는 서비스 시작은 #5 의 A/Y/N 표에서만 실행한다.
+  $out += L '  단계별 원인·해결 경로(안내만, 자동 실행 없음):' '  Per-stage causes and solutions (guidance only, no automatic execution):'
+  $out += L '    · 스캔 실패 → wuauserv/UsoSvc/WaaSMedicSvc/BITS 상태 확인(아래 [Core WU Services] 표), 정책 확인 후 시작은 사용자 Y/N' '    - Scan failure -> check wuauserv/UsoSvc/WaaSMedicSvc/BITS (see [Core WU Services] table below); starting them requires user Y/N'
+  $out += L '    · 다운로드 실패 → 네트워크/프록시/여유 공간 확인, 오류 코드 해석(위 UPDATEFAIL), 0x800f0922·0x80d0 계열은 여유/네트워크 원인' '    - Download failure -> check network/proxy/free space, see UPDATEFAIL decode above; 0x800f0922/0x80d0 point to space/network'
+  $out += L '    · 설치 실패 → CBS 손상 의심 시 DISM /ScanHealth 안내(W3 연계), 복구 명령은 자동 실행하지 않음' '    - Install failure -> suspected CBS damage: DISM /ScanHealth guidance (W3); recovery commands are never auto-run'
+  $out += L '    · 서버 URL·호스트명은 기록하지 않으며 이벤트 ID만 시간순으로 판독합니다(단정 금지).' '    - Server URLs and host names are never recorded; only event IDs are read in time order (no single-cause conclusion).'
+  return $out
 }
 
 if ($SelfTestUpdateFail) {
@@ -571,6 +698,11 @@ $defaults = @{
   tempAutoDelete           = $false   # 임시 폴더의 오래된 파일
   browserCacheAutoDelete   = $false   # 브라우저 캐시 (30일 이상)
   recycleAutoDelete        = $false   # 휴지통 (30일 이상)
+  # --- W1 #5/#6: 사용자 명시 승인 예외로 영구 저장되는 A(언제나) 플래그 ---
+  #   A 를 누른 경우에만 true 로 저장되며, 저장된 경우 무인 예약 실행에서도 적용된다.
+  coreServicesAlwaysEnable = $false   # 업데이트 핵심 4개 서비스를 언제나 켜기 (A 선택 시 저장)
+  werTempAutoDelete        = $false   # WER 덤프 포함 임시 파일 항상 삭제 (A 선택 시 저장)
+  searchResidueAutoDelete  = $false   # 삭제 찌꺼기(깨진 바로가기 등) 항상 삭제 (A 선택 시 저장)
   # --- 광고/추천 (2026-11-09 추가) ---
   #   Windows 11 은 기본값이 "광고 ON" 이라 새 PC/재설치 후 프로모션이 다시 나타난다.
   #   adQuiet 는 HKCU 값만 바꾸므로 관리자 없이도 되고, 전부 되돌릴 수 있다.
@@ -616,6 +748,7 @@ function Assert-ConfigSchema {
              'adQuiet','adQuietKeepLockScreen','adQuietMutePromoToasts','adQuietDisableTipsTasks',
              'oldDriverCleanup','oldDriverCheckDays',
               'tempAutoDelete','browserCacheAutoDelete','recycleAutoDelete','autoFeedback','explainMode',
+              'coreServicesAlwaysEnable','werTempAutoDelete','searchResidueAutoDelete',
              'adBlockEnabled','adBlockCategories','adBlockExtraDomains','adBlockAllowDomains','adBlockMaxDomains',
              'adDnsEnabled','adDnsServers')
   $types = @{ diskThresholdGB = [int]; tempDirs = [string[]]; servicesToCheck = [string[]]; restartServices = [string[]]; criticalServices = [string[]];
@@ -628,6 +761,7 @@ function Assert-ConfigSchema {
               adQuiet = [bool]; adQuietKeepLockScreen = [bool]; adQuietMutePromoToasts = [bool]; adQuietDisableTipsTasks = [bool];
               oldDriverCleanup = [bool]; oldDriverCheckDays = [int];
               tempAutoDelete = [bool]; browserCacheAutoDelete = [bool]; recycleAutoDelete = [bool];
+              coreServicesAlwaysEnable = [bool]; werTempAutoDelete = [bool]; searchResidueAutoDelete = [bool];
               adBlockEnabled = [bool]; adBlockCategories = [string[]]; adBlockExtraDomains = [string[]]; adBlockAllowDomains = [string[]]; adBlockMaxDomains = [int];
               adDnsEnabled = [bool]; adDnsServers = [string[]] }
   foreach ($prop in $cfg.PSObject.Properties) {
@@ -773,6 +907,19 @@ function Format-ByteSize([double]$Bytes) {
   if ($Bytes -ge 1GB) { return ('{0:0.00}GB' -f ($Bytes / 1GB)) }
   if ($Bytes -ge 1MB) { return ('{0:0.0}MB' -f ($Bytes / 1MB)) }
   return ('{0:0}KB' -f [math]::Max(1, $Bytes / 1KB))
+}
+
+# W1 #6: 화면에는 실제 경로를 보여주되, 결과 파일·업로드 리포트에는 계정명을 남기지 않는다.
+#   (경로에 계정명이 있으면 <사용자> 로 마스킹)
+function Mask-UserPath([string]$Path) {
+  $s = [string]$Path
+  try {
+    $up = [Environment]::GetFolderPath('UserProfile')
+    if (-not [string]::IsNullOrWhiteSpace($up)) { $s = $s -replace [regex]::Escape($up), '<사용자>' }
+  } catch { }
+  $s = $s -replace '([A-Za-z]:\\Users\\)[^\\]+', '$1<사용자>'
+  $s = $s -replace '(?i)ESENT|serial[=:]\s*\S+', '<민감정보>'
+  return $s
 }
 
 # "여유 공간이 위험할 만큼 적은가?" — 경고 문구를 언제 띄울지 결정한다(2026-11-13 사용자 지시).
@@ -2423,6 +2570,209 @@ try {
   $failureReasons += "[Disk] 디스크 공간 확인 실패: $_"
 }
 
+# --- W1 #6: WER/Search 인덱스 진단 + 디스크 여유 확보 단계 ---
+#   여유 ≈20% → "삭제 권장/문제 생길 수 있음" 안내.
+#   여유 ≤10% → "지금 삭제하지 않으면 문제 발생 가능" 안내 + 3종 검출(1년 미사용 프로그램 Y/N,
+#               임시파일·WER 덤프 A/Y/N, 삭제 찌꺼기 A/Y/N). 이후 단계(권한/색인범위/재구성)는 안내만.
+#   ⚠ 앱 제거·자동 삭제는 사용자 명시 승인 예외. 무인 실행에서는 절대 제거/삭제하지 않는다.
+Write-TestHeader (L '[FreeSpace] 디스크 여유가 부족할 때 확보 단계를 안내하고 안전한 항목만 확인 후 정리합니다.' '[FreeSpace] When disk space is low, guide recovery steps and clean only safe items after consent.')
+try {
+  $worstFreePct = 100.0
+  $worstDrive = ''
+  foreach ($d in Get-PSDrive -PSProvider FileSystem | Where-Object { $_.DisplayRoot -eq $null -and $null -ne $_.Free }) {
+    try {
+      $tot = [double]$d.Free + [double]$d.Used
+      if ($tot -le 0) { continue }
+      $pct = ([double]$d.Free / $tot) * 100.0
+      if ($pct -lt $worstFreePct) { $worstFreePct = $pct; $worstDrive = [string]$d.Name }
+    } catch { }
+  }
+  $spWarn = ($worstFreePct -le 20.0)
+  $spUrgent = ($worstFreePct -le 10.0)
+  if ($spWarn) {
+    $spLine = if ($spUrgent) {
+      L "[FreeSpace] $worstDrive 드라이브 여유 $([math]::Round($worstFreePct,1))% — 지금 삭제하지 않으면 문제가 발생할 수 있습니다." "[FreeSpace] Drive $worstDrive has $([math]::Round($worstFreePct,1))% free - delete now or problems may occur."
+    } else {
+      L "[FreeSpace] $worstDrive 드라이브 여유 $([math]::Round($worstFreePct,1))% — 이 문제 때문에 삭제를 권장합니다. 문제가 생길 수 있습니다." "[FreeSpace] Drive $worstDrive has $([math]::Round($worstFreePct,1))% free - deletion is recommended because of this; problems may occur."
+    }
+    Write-LogEntry $spLine
+    $recommendations += $spLine
+  } else {
+    Write-LogEntry ("FreeSpace: PASS - 가장 여유가 적은 드라이브({0})도 {1}% 남음" -f $worstDrive, [math]::Round($worstFreePct, 1))
+  }
+
+  if ($spUrgent) {
+    # 1단계: 1년 이상 설치된(사용하지 않은 것으로 의심되는) 프로그램 — 목록 + Y/N.
+    #   ⚠ 앱 제거는 기존 금지 사항의 사용자 명시 승인 예외다. 자동(unattended) 제거는 절대 하지 않고,
+    #     Y 를 누르면 Windows 기본 제거 UI(appwiz.cpl)를 열어 사람이 직접 고르게 한다(조용한 제거 없음).
+    $oldApps = @()
+    try {
+      $uninstallRoots = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                          'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                          'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')
+      $yearAgo = (Get-Date).AddYears(-1).ToString('yyyyMMdd')
+      foreach ($root in $uninstallRoots) {
+        foreach ($it in @(Get-ItemProperty -Path $root -ErrorAction SilentlyContinue)) {
+          if ([string]::IsNullOrWhiteSpace([string]$it.DisplayName)) { continue }
+          $id = [string]$it.InstallDate
+          if ($id -match '^\d{8}$' -and [string]::Compare($id, $yearAgo) -lt 0) {
+            $oldApps += (Mask-UserPath ([string]$it.DisplayName))
+          }
+        }
+      }
+    } catch { }
+    $oldApps = @($oldApps | Sort-Object -Unique | Select-Object -First 15)
+    if ($oldApps.Count -gt 0) {
+      Write-Host (L '  1단계 — 1년 이상 설치된 프로그램(사용 여부는 키트가 판단할 수 없어 후보만 표시):' '  Step 1 - programs installed over a year ago (usage cannot be determined; candidates only):')
+      foreach ($a in $oldApps) { Write-Host "    · $a" }
+      if ($script:canPromptUser) {
+        $appAns = ''
+        try { $appAns = (Read-Host (L '  Y = 제거 화면 열기(이번만) / N 또는 Enter = 건너뛰기' '  Y = open removal UI (this time only) / N or Enter = skip')).Trim() } catch { $appAns = '' }
+        if ("$appAns" -match '^\s*(y|yes|예|ㅇ|1)\s*$') {
+          try { Start-Process -FilePath 'appwiz.cpl' -ErrorAction Stop; Write-LogEntry 'FreeSpace: CHANGE - 1년 이상 프로그램 목록 확인 위해 제거 UI(appwiz.cpl) 열기 (사용자 Y)' }
+          catch { Write-LogEntry "FreeSpace: WARN - 제거 UI 열기 실패: $($_.Exception.Message)" }
+        } else { Write-LogEntry 'FreeSpace: INFO - program removal skipped (N)' }
+      } else {
+        Write-LogEntry (L '  1단계: 무인 실행이라 앱을 제거하지 않고 목록만 기록했습니다.' '  Step 1: unattended run - no app removed; candidates recorded only.')
+        $recommendations += '[FreeSpace] 1년 이상 설치된 프로그램 후보가 있습니다 — 직접 실행에서 목록 확인 후 제거하세요(무인 실행에서는 제거하지 않음).'
+      }
+    }
+
+    # 2단계: 임시 파일 + WER 덤프 (7일 이상) — A/Y/N. A 는 config 에 저장되어 무인에도 적용.
+    $tmpItems = @()
+    try {
+      # 위 Disk 섹션이 config(tempDirs)의 폴더를 이미 정리한다. 같은 파일에 두 번 묻지 않도록
+      #   이미 처리되는 표준 TEMP/Windows\Temp 는 제외하고, WER 덤프 폴더를 이 단계에서 전담한다.
+      $configuredTempDirs = @(Get-Cfg 'tempDirs')
+      $tmpRoots = @()
+      foreach ($cand in @([IO.Path]::GetTempPath(), (Join-Path $env:windir 'Temp'))) {
+        $already = $false
+        foreach ($cd in $configuredTempDirs) {
+          if ([string]::IsNullOrWhiteSpace($cd)) { continue }
+          try {
+            if ([string]::Equals([IO.Path]::GetFullPath($cand).TrimEnd('\'), [IO.Path]::GetFullPath($cd).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $already = $true; break }
+          } catch { }
+        }
+        if (-not $already) { $tmpRoots += $cand }
+      }
+      $tmpRoots += @((Join-Path $env:ProgramData 'Microsoft\Windows\WER\ReportQueue'),
+                     (Join-Path $env:ProgramData 'Microsoft\Windows\WER\ReportArchive'))
+      $cutoff = (Get-Date).AddDays(-7)
+      foreach ($tr in $tmpRoots) {
+        if ([string]::IsNullOrWhiteSpace($tr) -or -not (Test-Path -LiteralPath $tr)) { continue }
+        foreach ($f in @(Get-ChildItem -LiteralPath $tr -File -Recurse -Force -ErrorAction SilentlyContinue |
+                         Where-Object { $_.LastWriteTime -lt $cutoff } | Select-Object -First 400)) {
+          $tmpItems += [pscustomobject]@{ Name = (Mask-UserPath $f.FullName); Size = [double]$f.Length; Date = $f.LastWriteTime; Real = $f.FullName }
+        }
+      }
+    } catch { }
+    if ($tmpItems.Count -gt 0) {
+      $tmpNotice = @(
+        (L '7일 이상 지난 임시 파일과 WER 덤프입니다. A=언제나(무인 포함) / Y=이번만 / N=거부.' 'Temp files and WER dumps older than 7 days. A = always (incl. unattended) / Y = this time only / N = keep.'),
+        (L '필요한 자료가 있으면 백업하세요. 키트 결과 파일·문서는 절대 지우지 않습니다.' 'Back up anything you need. Kit result files and documents are never deleted.')
+      )
+      $null = Invoke-DeleteReview -Target (L '임시 파일(WER 덤프 포함)' 'Temp files (incl. WER dumps)') -Items $tmpItems -Notice $tmpNotice -PolicyKey 'werTempAutoDelete' -DeleteAction {
+        foreach ($c in $tmpItems) {
+          $rp = if ($c.Real) { [string]$c.Real } else { [string]$c.Name }
+          try { Remove-Item -LiteralPath $rp -Force -ErrorAction SilentlyContinue } catch { }
+        }
+      }
+    }
+
+    # 3단계: 삭제하고 남은 찌꺼기(깨진 바로가기) — A/Y/N. 경로는 마스킹해서 기록.
+    $junkItems = @()
+    try {
+      $lnkRoots = @([Environment]::GetFolderPath('Desktop'),
+                    (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'),
+                    (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'))
+      $wsh = New-Object -ComObject WScript.Shell
+      foreach ($lr in $lnkRoots) {
+        if ([string]::IsNullOrWhiteSpace($lr) -or -not (Test-Path -LiteralPath $lr)) { continue }
+        foreach ($lnk in @(Get-ChildItem -LiteralPath $lr -Filter '*.lnk' -File -Recurse -Force -ErrorAction SilentlyContinue | Select-Object -First 200)) {
+          try {
+            $sc = $wsh.CreateShortcut($lnk.FullName)
+            $tp = [string]$sc.TargetPath
+            if (-not [string]::IsNullOrWhiteSpace($tp) -and -not (Test-Path -LiteralPath $tp)) {
+              $junkItems += [pscustomobject]@{ Name = (Mask-UserPath $lnk.FullName); Size = [double]$lnk.Length; Date = $lnk.LastWriteTime; Real = $lnk.FullName }
+            }
+          } catch { }
+        }
+      }
+    } catch { }
+    if ($junkItems.Count -gt 0) {
+      $junkNotice = @(
+        (L '프로그램 제거 후 남은 깨진 바로가기입니다. A=언제나(무인 포함) / Y=이번만 / N=거부.' 'Broken shortcuts left after program removal. A = always (incl. unattended) / Y = this time only / N = keep.'),
+        (L '표시 경로의 계정명은 <사용자> 로 마스킹되어 결과 파일에 기록됩니다.' 'Account names in displayed paths are masked as <user> in result files.')
+      )
+      $null = Invoke-DeleteReview -Target (L '삭제 찌꺼기(깨진 바로가기)' 'Leftovers (broken shortcuts)') -Items $junkItems -Notice $junkNotice -PolicyKey 'searchResidueAutoDelete' -DeleteAction {
+        foreach ($c in $junkItems) {
+          $rp = if ($c.Real) { [string]$c.Real } else { [string]$c.Name }
+          try { Remove-Item -LiteralPath $rp -Force -ErrorAction SilentlyContinue } catch { }
+        }
+      }
+    }
+
+    # 이후 단계는 안내만 — 키트는 권한 수정·색인 범위 변경·재구성을 절대 실행하지 않는다.
+    foreach ($gl in @(
+      (L '2단계(안내만): 권한 문제 배제 — 이벤트 3036/3006/3023 확인, 폴더 고급 속성 "파일 내용 색인 허용" 및 접근 계정 권한 확인.' 'Step 2 (guidance only): rule out permissions - check events 3036/3006/3023, folder advanced "Allow files content indexing" and account rights.'),
+      (L '3단계(안내만): 색인 범위 축소 — 캐시·PST·네트워크 공유 제외(검색 옵션 > 색인되는 위치 수정).' 'Step 3 (guidance only): shrink index scope - exclude caches, PST and network shares (Search Options > Modify indexed locations).'),
+      (L '4단계(안내만): 다시 빌드 — 검색 옵션 > 고급 > 다시 빌드(최대 24시간, 동안 검색 결과 불완전). 키트는 실행 버튼이 없습니다.' 'Step 4 (guidance only): rebuild - Search Options > Advanced > Rebuild (up to 24h, partial results meanwhile). The kit has no run button.'),
+      (L '색인 저장 드라이브 여유가 1GB 미만이면 색인 스로틀걸려 재색인이 멈출 수 있습니다(KB 4558579).' 'If the index drive has under 1GB free, indexing backoff can stall a reindex (KB 4558579).')
+    )) { $recommendations += $gl; Write-Host "  $gl" }
+  }
+} catch {
+  Write-LogEntry "FreeSpace: SKIP - 여유 확보 단계 확인 실패: $($_.Exception.Message)"
+}
+
+# W1 #6: Windows Search 재색인 횟수·색인 DB 크기 (읽기 전용 / 24시간 중복 억제)
+try {
+  $reindexCount = 0
+  try {
+    $reindexCount = @(Get-WinEvent -FilterHashtable @{
+        LogName = 'Application'; ProviderName = 'Microsoft-Windows-Search'; Id = 3036
+        StartTime = (Get-Date).AddDays(-7)
+      } -ErrorAction SilentlyContinue).Count
+  } catch { }
+  $idxSizeText = 'n/a'
+  try {
+    $idxDir = Join-Path $env:ProgramData 'Microsoft\Search\Data\Applications\Windows'
+    if (Test-Path -LiteralPath $idxDir) {
+      $idxBytes = 0.0
+      foreach ($f in @(Get-ChildItem -LiteralPath $idxDir -File -ErrorAction SilentlyContinue)) { $idxBytes += [double]$f.Length }
+      $idxSizeText = Format-ByteSize $idxBytes
+    }
+  } catch { }
+  if ($reindexCount -ge 5) {
+    $noticeFlag = Join-Path $scriptRoot '.last_search_reindex_notice'
+    $suppress = $false
+    try {
+      if (Test-Path -LiteralPath $noticeFlag) {
+        $lastNotice = Get-Content -LiteralPath $noticeFlag -Raw -ErrorAction SilentlyContinue
+        $parsed = $null
+        if ([datetime]::TryParse(([string]$lastNotice).Trim(), [ref]$parsed)) {
+          if (((Get-Date) - $parsed).TotalHours -lt 24) { $suppress = $true }
+        }
+      }
+    } catch { }
+    if (-not $suppress) {
+      try { (Get-Date).ToString('o') | Set-Content -LiteralPath $noticeFlag -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+      $reLine = ("[Search] 최근 7일 재색인(이벤트 3036) {0}회 — 색인 DB {1}. 초기/재구성 색인은 최대 24시간 정상이며, 24시간 초과 + CPU 정체일 때만 이상 판정." -f $reindexCount, $idxSizeText)
+      Write-LogEntry "Search: WARN - $reLine"
+      $recommendations += $reLine
+      foreach ($gl in @(
+        (L '[Search] 반복 원인별 확인: 3036 + 0x80041205(권한), 캐시/빌드 산출물 색인, PST/대형 메일함, AllowIndexingEncryptedStoresOrItems 토글, System 7036(WSearch 재시작).' '[Search] Repeated causes: 3036 + 0x80041205 (permissions), cache/build artifacts indexing, PST/large mailboxes, AllowIndexingEncryptedStoresOrItems toggle, System 7036 (WSearch restarts).'),
+        (L '[Search] 해결은 안내만 합니다 — 색인 대상 변경·권한 수정·다시 빌드·DB 삭제/압축(EsentUtl)은 키트가 절대 실행하지 않습니다.' '[Search] Solutions are guidance only - the kit never changes scope, edits permissions, rebuilds, or deletes/compacts the DB (EsentUtl).')
+      )) { $recommendations += $gl }
+    } else {
+      Write-LogEntry ("Search: INFO - 재색인 {0}회 감지, 24시간 내 안내를 이미 보내 중복 억제" -f $reindexCount)
+    }
+  } else {
+    Write-LogEntry ("Search: PASS - 최근 7일 재색인 {0}회 (기준 5회 미만), 색인 DB {1}" -f $reindexCount, $idxSizeText)
+  }
+} catch {
+  Write-LogEntry "Search: SKIP - 재색인 확인 실패: $($_.Exception.Message)"
+}
+
 # --- 중요 서비스 상태 확인 + 자동 재시작 ---
 $servicesToCheck = Get-Cfg 'servicesToCheck'
 $criticalServices = Get-Cfg 'criticalServices'
@@ -2497,6 +2847,96 @@ foreach ($svcName in $servicesToCheck) {
     $servicesOk = $false
     $allPass = $false
     $failureReasons += "[Service] $svcName 서비스 확인 실패: $_"
+  }
+}
+
+# --- W1 #5: 업데이트 핵심 4개 서비스 상태 표 + A/Y/N (사용자 명시 승인 예외) ---
+#   wuauserv=검색·설치 / UsoSvc=재시작 조율 / WaaSMedicSvc=자동복구 / BITS=다운로드.
+#   꺼진 서비스는 "무슨 기능 + 무엇이 위험한지"를 함께 표시한다. WaaSMedicSvc 가 꺼진 건
+#   보통 악성코드·서드파티 최적화·정책이 손 댄 문제 신호다(MS가 의도적으로 끄는 게 아님).
+#   A = 시작 유형 Automatic + 즉시 시작, 설정에 저장되어 무인 예약 실행에서도 적용.
+#   Y = 이번만 시작(시작 유형 변경 없음, 사람이 있는 실행에서만). N = 거부(상태만 보고).
+$coreSvcInfo = [ordered]@{
+  'wuauserv'     = [pscustomobject]@{ Ko='업데이트 검색·설치'; En='Update search and install'; RiskKo='꺼지면 새 업데이트가 오지 않습니다'; RiskEn='When stopped, new updates do not arrive' }
+  'UsoSvc'       = [pscustomobject]@{ Ko='업데이트 재시작 조율'; En='Update restart orchestration'; RiskKo='꺼지면 업데이트 재부팅이 지연됩니다'; RiskEn='When stopped, update reboots are delayed' }
+  'WaaSMedicSvc' = [pscustomobject]@{ Ko='업데이트 자동복구'; En='Update automatic recovery'; RiskKo='꺼진 건 악성코드·최적화 도구·정책이 손 댄 문제 신호일 수 있습니다'; RiskEn='Stopped is often a problem signal (malware, optimizer or policy)' }
+  'BITS'         = [pscustomobject]@{ Ko='백그라운드 다운로드'; En='Background downloads'; RiskKo='꺼지면 업데이트 파일 다운로드가 막힙니다'; RiskEn='When stopped, update payload downloads are blocked' }
+}
+Write-TestHeader (L '[Core WU Services] 업데이트 핵심 4개 서비스의 상태·기능·위험을 확인합니다.' '[Core WU Services] Status, role and risk of the 4 core update services.')
+$coreStopped = @()
+foreach ($cs in $coreSvcInfo.Keys) {
+  try {
+    $csv = Get-Service -Name $cs -ErrorAction Stop
+    $cm = Get-CimInstance Win32_Service -Filter "Name='$cs'" -ErrorAction SilentlyContinue
+    $startMode = if ($cm) { [string]$cm.StartMode } else { [string]$csv.StartType }
+    $role = if ($script:kitLang -eq 'ko') { [string]$coreSvcInfo[$cs].Ko } else { [string]$coreSvcInfo[$cs].En }
+    $risk = if ($script:kitLang -eq 'ko') { [string]$coreSvcInfo[$cs].RiskKo } else { [string]$coreSvcInfo[$cs].RiskEn }
+    $isRunning = ($csv.Status -eq 'Running')
+    $detail = if ($isRunning) { L '정상' 'OK' } else { $risk }
+    Write-Host ("  {0,-14} {1,-9} {2,-9} {3} — {4}" -f $cs, $csv.Status, $startMode, $role, $detail)
+    Write-LogEntry ("CoreSvc: INFO - {0}: 상태={1} 시작유형={2} 기능={3}" -f $cs, $csv.Status, $startMode, $role)
+    if (-not $isRunning) { $coreStopped += $cs }
+  } catch {
+    Write-Host ("  {0,-14} {1}" -f $cs, (L '조회 실패' 'query failed'))
+    Write-LogEntry "CoreSvc: WARN - $cs 조회 실패: $($_.Exception.Message)"
+  }
+}
+
+if ($coreStopped.Count -gt 0) {
+  $alwaysCore = [bool](Get-Cfg 'coreServicesAlwaysEnable')
+  $doFix = $false
+  $fixMode = ''
+  if ($alwaysCore) {
+    # 설정에 저장된 A: 사람이 없는 예약 실행에서도 적용(사용자 명시 승인 예외).
+    $doFix = $true; $fixMode = 'A-saved'
+    Write-Host (L '  → 설정에 저장된 A(언제나 켜기)에 따라 묻지 않고 켭니다.' '  -> Saved A (always enable) applies without asking.')
+  } elseif ($script:canPromptUser) {
+    Write-Host ''
+    Write-Host (L "  꺼진 핵심 서비스: $($coreStopped -join ', ')" "  Stopped core services: $($coreStopped -join ', ')")
+    Write-Host (L '  A = 언제나 켜기(설정 저장, 무인 실행에도 적용) / Y = 이번만 시작 / N 또는 Enter = 거부' '  A = always enable (saved, applies unattended) / Y = start this time only / N or Enter = reject')
+    $ans = ''
+    try { $ans = (Read-Host (L '선택 [A/Y/N]' 'Choice [A/Y/N]')).Trim() } catch { $ans = '' }
+    if ("$ans" -match '^\s*(a|all|언제나|항상)\s*$') {
+      $doFix = $true; $fixMode = 'A'
+      $saved = Set-CfgBool -Key 'coreServicesAlwaysEnable' -Value $true
+      if ($saved) { Write-Host (L '  → A 저장됨: 앞으로 무인 실행에서도 켭니다.' '  -> A saved: will enable even unattended from now on.') }
+      else { Write-Host (L '  → A 저장 실패: 이번 실행에서만 켭니다.' '  -> Could not save A; enabling this run only.') }
+    } elseif ("$ans" -match '^\s*(y|yes|예|ㅇ|1)\s*$') {
+      $doFix = $true; $fixMode = 'Y'
+    } else {
+      Write-Host (L '  → N: 상태만 보고합니다.' '  -> N: reporting status only.')
+    }
+  } else {
+    Write-Host (L '  → 자동 실행(사람 없음): 상태만 보고합니다. 무인 적용을 원하면 직접 실행에서 A 를 누르세요.' '  -> Unattended run: reporting status only. Press A in an interactive run to apply unattended.')
+  }
+
+  if ($doFix) {
+    $coreFixed = @()
+    foreach ($cs in $coreStopped) {
+      try {
+        if ($fixMode -eq 'A' -or $fixMode -eq 'A-saved') {
+          Set-Service -Name $cs -StartupType Automatic -ErrorAction Stop   # A: 시작 유형 Automatic 영구 설정
+        }
+        Start-Service -Name $cs -ErrorAction Stop
+        (Get-Service -Name $cs).WaitForStatus('Running', '00:00:30')
+        $coreFixed += $cs
+        Write-LogEntry "CoreSvc: CHANGE - $cs 시작 완료 ($fixMode)"
+      } catch {
+        Write-LogEntry "CoreSvc: WARN - $cs 시작 실패 ($fixMode): $($_.Exception.Message)"
+        $recommendations += "[CoreSvc] $cs 서비스를 시작하지 못했습니다. 정책/권한을 확인하세요."
+      }
+    }
+    if ($coreFixed.Count -gt 0) {
+      Add-AutoFix ("업데이트 핵심 서비스 시작({0}): {1}" -f $fixMode, ($coreFixed -join ', '))
+    }
+    if ($coreStopped -contains 'WaaSMedicSvc') {
+      $recommendations += '[CoreSvc] WaaSMedicSvc가 꺼져 있었습니다 — 악성코드/서드파티 최적화/정책이 손 댄 문제 신호일 수 있어 원인 확인을 권장합니다.'
+    }
+    $recommendations += '[CoreSvc] 정책에 의해 꺼진 서비스도 있을 수 있습니다. services.msc에서 시작 유형을 확인하세요.'
+  } else {
+    foreach ($cs in $coreStopped) {
+      $recommendations += ("[CoreSvc] $cs 서비스가 중지됨 — 기능/위험 확인 후 시작 필요 (직접 실행에서 A/Y/N)")
+    }
   }
 }
 
@@ -5057,9 +5497,39 @@ try {
       Write-LogEntry ("UPDATEFAIL: WARN - 최근 30일 업데이트 실패 {0}건 (마지막 {1}): {2}" -f $ufEvents.Count, $ufLast, $ufSummary)
       $recommendations += ("[UpdateFail] 업데이트 실패 {0}건 — 설정 > Windows Update > 업데이트 기록에서 확인" -f $ufEvents.Count)
       foreach ($ud in @($ufDecoded | Select-Object -First 3)) { $recommendations += "  - $ud" }
+
+      # W1 #1: 0xC000000D 는 범용 NTSTATUS 다. WU 이벤트 코드로 보이거나 System 로그(41/1001/7000)에
+      #   같이 적혀 있으면 "단정 금지 + 3가지 확인 + 원인별 경로" 안내를 출력한다. 자동 복구는 절대 없다.
+      $hasC000000D = (@($ufUniq | Where-Object { "$_" -match '(?i)c000000d' }).Count -gt 0)
+      if (-not $hasC000000D) {
+        try {
+          $c000Evts = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 41, 1001, 7000 } -MaxEvents 20 -ErrorAction SilentlyContinue |
+                         Where-Object { [string]$_.Message -match '(?i)0xc000000d' })
+          $hasC000000D = ($c000Evts.Count -gt 0)
+        } catch { }
+      }
+      if ($hasC000000D) {
+        foreach ($cl in @(Get-C000000DContextLines)) {
+          Write-Host $cl
+          try { Add-Content -Path $logPath -Value $cl -Encoding UTF8 } catch { }
+        }
+      }
     }
   } catch {
     Write-LogEntry "UPDATEFAIL: SKIP - 실패 이력 확인 불가: $($_.Exception.Message)"
+  }
+
+  # W1 #4: 파이프라인 3단 요약 + 단계별 원인/해결 안내 (읽기 전용 / 자동 실행 없음).
+  #   자동 설치(autoInstallUpdates)는 기본 꺼짐 유지 + Test-PendingReboot 가드도 그대로 유지한다.
+  try {
+    $lookback = 7
+    try { $lookback = [int](Get-Cfg 'eventLookbackDays') } catch { }
+    foreach ($pl in @(Get-UpdatePipelineLines -LookbackDays $lookback)) {
+      Write-Host $pl
+      try { Add-Content -Path $logPath -Value $pl -Encoding UTF8 } catch { }
+    }
+  } catch {
+    Write-LogEntry "UpdatePipeline: SKIP - 3단 요약 생성 실패: $($_.Exception.Message)"
   }
 } catch {
   Write-LogEntry "Updates: SKIP - 확인 실패: $($_.Exception.Message)"
@@ -5171,9 +5641,10 @@ try {
     }; Help='프린트 스풀러 재시작 + 대기 문서 삭제. 프린터 드라이버 재설치 및 최신 업데이트 확인' }
 
     # ===== Windows Search =====
+    # W1 #6: 재색인(3036) 5회 이상은 FreeSpace 섹션이 24시간 중복 억제로 안내한다. 여기서는 안내 문구만 연결.
     @{ Label='Windows 검색 오류'; Log='System'; Id=1001,1004,3001; Level=2; Fix={
       try { $null = net stop WSearch 2>&1; $null = net start WSearch 2>&1; $true } catch { throw "$($_.Exception.Message)" }
-    }; Help='Windows Search 서비스 재시작. 검색 인덱스 재구축(설정 > 검색 > 검색 인덱스 고급 옵션 > 다시 빌드)' }
+    }; Help='Windows Search 서비스 재시작. 재색인 5회 이상이면 FreeSpace 섹션 안내 참고(3036/권한/색인범위/다시 빌드). 검색 인덱스 재구축은 설정 > 검색 > 검색 인덱스 고급 옵션 > 다시 빌드에서 직접(최대 24시간). 키트는 DB 삭제·압축·재구성을 실행하지 않음' }
 
     # ===== 방화벽/보안 =====
     @{ Label='Windows 방화벽 오류'; Log='System'; Id=2002,2004,2006; Level=2; Fix={
@@ -5214,7 +5685,7 @@ try {
     }; Help='스토어 앱 재등록 시도. wsreset.exe 실행, Windows 스토어 앱 문제 해결사 실행' }
     @{ Label='SearchIndexer 충돌'; Log='Application'; Id=1000,1001,3103; Level=2; Fix={
       try { $null = net stop WSearch 2>&1; $null = net start WSearch 2>&1; $true } catch { throw "$($_.Exception.Message)" }
-    }; Help='검색 인덱서 재시작. 인덱스 위치 확인: searchindexer.exe /Rebuild (관리자)' }
+    }; Help='검색 인덱서 재시작. 재색인 반복(3036 5회+)·권한·색인 범위는 FreeSpace 섹션 안내만(키트 실행 금지). 인덱스 위치 확인: searchindexer.exe /Rebuild (관리자, 직접)' }
     @{ Label='Office Web Add-in 매니페스트 오류(Forms)'; Log='OAlerts'; Id=300; Level=2; Fix={
       try {
         $guid = '65ff8bd9-e8d3-4581-a27a-75840c41de94'
@@ -5565,6 +6036,13 @@ if ($script:adWarning.Count -gt 0) {
     try { Add-Content -Path $logPath -Value "  - $w" -Encoding UTF8 } catch { }
   }
 }
+# W1 #3: WPP 안내 — 검사 항목/상태가 아니라 별도 안내 섹션으로만 출력한다(매 실행 노이즈 최소화).
+$wppNotice = @(Get-WppNoticeSection)
+foreach ($wl in $wppNotice) {
+  try { Add-Content -Path $logPath -Value $wl -Encoding UTF8 } catch { }
+}
+Write-Host ''
+foreach ($wl in $wppNotice) { Write-Host $wl }
 Write-LogEntry "Maintenance completed at $(Get-Date -Format 'o')"
 # 마지막 단계(Auto-Heal)는 다음 Write-ProgressBar가 없어 시간이 누적되지 않는다 → 여기서 강제 확정.
 # (수정 전: 벽시계 21분 중 13분이 "Execution Timing"에서 사라져 보였음)
@@ -6058,6 +6536,9 @@ if ($Mode -eq 'scheduled' -or $Mode -eq 'idle') {
       $report += $summaryBody
       $report += ''
       $report += (L '[안내] 이 점검은 파일 백업을 하지 않습니다. 중요한 파일(사진/문서)은 별도로 백업하세요.' '[Note] This check does not back up files. Please back up important files (photos/documents) separately.')
+      $report += ''
+      # W1 #3: WPP 는 검사 결과가 아니라 "향후 기능 안내" 별도 섹션으로만 표시한다.
+      $report += @(Get-WppNoticeSection)
       $report += '=================================================='
       $report += ''
       $report += (L '--- 상세 로그 (같은 내용을 기술적인 형태로) ---' '--- Detailed log (same information in technical form) ---')
