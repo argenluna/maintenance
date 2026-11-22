@@ -102,7 +102,7 @@ foreach ($r in $rels) {
   if ($tag -match '^v?(\d+\.\d+\.\d+)-rc(\d+)$') {
     $rv = $null
     if ([version]::TryParse($Matches[1], [ref]$rv)) {
-      $rcs += [pscustomobject]@{ Tag = $tag; Ver = $rv; Rc = [int]$Matches[2]; Rel = $r }
+      $rcs += [pscustomobject]@{ Tag = $tag; Ver = $rv; VerRaw = $Matches[1]; Rc = [int]$Matches[2]; Rel = $r }
     }
   }
 }
@@ -200,7 +200,8 @@ try {
 
   $vf = Join-Path $canary 'VERSION'
   $vline = if (Test-Path -LiteralPath $vf) { ([string](Get-Content -LiteralPath $vf -Raw -Encoding UTF8)).Trim().Split("`n")[0].Trim() } else { '' }
-  Add-Row 'VERSION 일치' ($vline -eq [string]$pick.Ver) "VERSION=$vline / 태그=$($pick.Ver)"
+  $tagVerRaw = if ($pick.PSObject.Properties['VerRaw']) { [string]$pick.VerRaw } else { [string]$pick.Ver }
+  Add-Row 'VERSION 일치' ($vline -eq $tagVerRaw) "VERSION=$vline / 태그=$tagVerRaw"
 
   $scripts = @(Get-ChildItem -LiteralPath $canary -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.ps1','.psm1' })
   $parseBad = @()
