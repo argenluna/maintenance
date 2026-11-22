@@ -39,6 +39,7 @@
 
 | 한국어 | English |
 |---|---|
+| [버전 안내](#버전-안내) | [Version guide](#version-guide) |
 | [이건 뭐예요?](#이건-뭐예요) | [What is this?](#what-is-this) |
 | [왜 만들었나요?](#왜-만들었나요) | [Why was it made?](#why-was-it-made) |
 | [안전 원칙](#안전-원칙) | [Safety principles](#safety-principles) |
@@ -54,6 +55,11 @@
 
 ---
 
+## 버전 안내 / Version Guide
+
+| 현재 기능 / Current Features | 현재 기능 변경점 / Current Version Changes | 다음 버전 변경 예정점 / Planned Changes for Next Version |
+|---|---|---|
+| · 서비스·방화벽·VSS·WinRE·WMI·Defender 보호 상태 확인 후 자동 복구<br>· 임시파일·브라우저 캐시·휴지통·pip/conda 캐시 정리, 디스크 부족 시 정리<br>· 시간 동기화(w32tm /resync), 볼륨 최적화는 Windows ScheduledDefrag 에 위임·상태 확인<br>· 시스템 복원 활성화 + 24시간 내 복원 지점 없으면 생성<br>· 이벤트 기반 반복 고장 자동 치유(스풀러/검색/방화벽/TPM 등), 유령 장치·드라이버 저장소 용량 확인<br>· 오래된 드라이버 감지 — 새 버전이 이미 설치됐는데 남은 이전 드라이버를 목록으로 보여주고, 직접 실행에서 y 를 누르면 삭제 (v1.13.0, 아래 "오래된 드라이버 정리" 참고)<br>· 디스크 SMART/SSD wear, BSOD 덤프, WHEA 하드웨어 오류, 부팅 시간 추세<br>· 보안 부팅/TPM/UEFI CA 2023, 인증서 만료, Windows 정품 인증, 예약 작업 생존, CRITICAL 서비스<br>· Windows 광고/추천 스위치 끄기(HKCU, 가역) — hosts/DNS 광고 차단은 기본 꺼짐(opt-in)<br>· OS — 운영체제 버전·빌드 확인<br>· CPU — 프로세서 모델 확인<br>· Memory — 설치된 메모리 용량 확인<br>· Disk — 디스크 여유 공간 확인<br>· Service — 주요 서비스 실행 상태 확인<br>· VSS — 볼륨 섀도 복사 서비스 확인<br>· DiskHealth — 디스크 SMART·건강 상태 확인<br>· SysFix — 시스템 설정 이상 확인<br>· SecureBoot — 보안 부팅 활성화 확인<br>· Recovery — WinRE 복구 환경 확인<br>· WMI — WMI 리포지토리 무결성 확인<br>· CertStore — 인증서 만료 여부 확인<br>· TaskHealth — 예약 작업 생존 여부 확인<br>· GPU — 그래픽 카드 정보 확인<br>· Battery — 노트북 배터리 마모 확인<br>· WHEA — 하드웨어 오류 이벤트 확인<br>· DriverStore — 드라이버 저장소 용량 확인<br>· BrowserCache — 오래된 브라우저 캐시 확인<br>· HostFile — hosts 파일 변조 확인<br>· DNS — DNS 설정·캐시 확인<br>· AdQuiet — 광고·추천 설정 확인<br>· AdFilter — 광고 도메인 차단 상태 확인<br>· Network — 네트워크 어댑터 상태 확인<br>· GhostDev — 유령 장치 확인<br>· PkgCache — pip·conda 캐시 용량 확인<br>· Startup — 시작 프로그램 목록 확인<br>· RecycleBin — 휴지통 보관 항목 확인<br>· RegHive — 레지스트리 하이브 용량 확인<br>· BSOD — 블루스크린 덤프 확인<br>· OldDrivers — 새 버전이 설치됐는데 남은 이전 드라이버 감지<br>· OS 정품 인증 (licenseCheckDays) — Windows 정품 인증 상태 확인<br>· Defrag — 최적화는 하지 않고 ScheduledDefrag 작업 상태만 확인<br>· CHKDSK (chkdsk /scan, 모든 NTFS 볼륨) — 파일 시스템 오류 검사<br>· SFC (/verifyonly) + WinSxS (DISM 분석/정리) — 시스템 파일 무결성 검사<br>· TimeSync — 시각 동기화 상태 확인<br>· Stability — 최근 시스템 오류 이력 확인<br>· BootPerf — 부팅 시간 추이 확인<br>· Updates — Windows 업데이트·Defender 상태 확인<br>· Auto-Heal — 반복 오류 자동 복구 이력 확인 | 게시 없음 (공개 저장소에 올리는 패치 내역 없음)<br>Not published (no patch details posted) | · 1. #1 0xC000000D 범용 표기 【지정】 — 문제 정의+3가지 확인+원인별 해결 경로, 자동 복구 없음<br>· 2. #3 WPP 기본활성화 안내 【지정】 — 검사 화면 비표기, 별도 안내 섹션에 "기능 추가 예정·일정 미정"<br>· 3. #4 업데이트 파이프라인 3단 요약(스캔/다운로드/설치) + 원인·해결, 해결 가능 시 Y/N<br>· 4. #5 4개 핵심 서비스 상태 표 + A/Y/N(A=언제나, 무인 포함)<br>· 5. #6 WER/Search 인덱스 용량·재색인 + 여유 공간 단계 A/Y/N(백업 묶음) | 예약됨 (미구현) |<br><br>**English**<br>· #1 0xC000000D: generic error code; problem definition, 3 checks, cause-specific paths. No automatic repair.<br>· #3 WPP: notice only, planned feature, no schedule yet; no status shown in check screen.<br>· #4 Windows Update pipeline: 3-line summary (scan/download/install) with cause and resolution; Y/N before any fix.<br>· #5 Four core services: status table with description and risk; A=always (including unattended), Y=once, N=decline.<br>· #6 WER/Search index: capacity and reindex notice, 24h duplicate guard; staged A/Y/N for free space. Later steps are notice only. |
 ## 이건 뭐예요 / What is this?
 
 **한국어**
