@@ -39,7 +39,9 @@ param(
   # v1.14.6: 초보자용 결과표 매핑만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
   [switch]$SelfTestExplain,
   # v1.15.0: 업데이트 오류 코드 해석 함수만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
-  [switch]$SelfTestUpdateFail
+  [switch]$SelfTestUpdateFail,
+  # v1.18.0: 휴지통 조용 삭제(개별 확인 창 없음)만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
+  [switch]$SelfTestRecycle
 )
 
 Set-StrictMode -Version Latest
@@ -592,6 +594,48 @@ function Get-OldDriverCandidatesFrom {
     }
   }
   return @($older | Sort-Object -Property Provider, Class, File, Version)
+}
+
+# v1.18.0 (긴급): 휴지통 항목을 Windows 확인 창 없이 영구 삭제한다.
+#   InvokeVerb('delete') 는 항목마다 "영구 삭제" 확인 창을 띄워 A 를 눌러도 개별 확인이 필요했다.
+#   $R 데이터 파일과 $I 메타데이터를 함께 지워야 휴지통에서 완전히 사라진다.
+#   휴지통 저장소 밖 경로는 절대 지우지 않는다(안전장치).
+function Remove-RecycleItemSilent {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+  if ($Path -notlike '*$RECYCLE.BIN*') { return $false }
+  try {
+    $dir  = Split-Path -Parent $Path
+    $leaf = Split-Path -Leaf $Path
+    if ($leaf -like '$R*') {
+      $meta = Join-Path $dir ('$I' + $leaf.Substring(2))
+      if (Test-Path -LiteralPath $meta) { Remove-Item -LiteralPath $meta -Force -ErrorAction SilentlyContinue }
+    }
+    Remove-Item -LiteralPath $Path -Force -Recurse -ErrorAction SilentlyContinue
+    return (-not (Test-Path -LiteralPath $Path))
+  } catch { return $false }
+}
+
+# v1.18.0: 휴지통 조용 삭제 회귀 테스트 (가상 $RECYCLE.BIN, 실제 휴지통은 건드리지 않음)
+if ($SelfTestRecycle) {
+  $root = Join-Path ([IO.Path]::GetTempPath()) ('maint-selftest-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  $store = Join-Path $root '$RECYCLE.BIN\S-1-5-21-SELFTEST'
+  New-Item -ItemType Directory -Path $store -Force | Out-Null
+  $outside = Join-Path $root 'keep.txt'
+  [IO.File]::WriteAllText((Join-Path $store '$RAA0001.log'), 'data')
+  [IO.File]::WriteAllText((Join-Path $store '$IAA0001.log'), 'meta')
+  [IO.File]::WriteAllText((Join-Path $store '$RBB0002.log'), 'data2')
+  [IO.File]::WriteAllText($outside, 'keep')
+  $script:rbFail = 0
+  function Assert-RB([string]$Name, [bool]$Ok) { if ($Ok) { "PASS $Name" } else { "FAIL $Name"; $script:rbFail++ } }
+  Assert-RB '데이터+메타데이터 함께 삭제' ((Remove-RecycleItemSilent -Path (Join-Path $store '$RAA0001.log')) -and (-not (Test-Path -LiteralPath (Join-Path $store '$IAA0001.log'))))
+  Assert-RB '메타데이터 없는 항목도 삭제' (Remove-RecycleItemSilent -Path (Join-Path $store '$RBB0002.log'))
+  Assert-RB '휴지통 밖 경로는 거부' (-not (Remove-RecycleItemSilent -Path $outside))
+  Assert-RB '빈 경로는 거부' (-not (Remove-RecycleItemSilent -Path '   '))
+  "SelfTestRecycle: fail=$script:rbFail"
+  Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+  if ($script:rbFail -gt 0) { exit 1 }
+  exit 0
 }
 
 if ($SelfTestDrivers) {
@@ -4436,8 +4480,13 @@ try {
   }
   if ($rbCands.Count -gt 0) {
     $sizeMB = [math]::Round((($rbCands | Measure-Object -Property Size -Sum).Sum) / 1MB, 1)
-    $approved = Invoke-DeleteReview -Target '휴지통 (30일 이상 지난 파일)' -Items $rbCands -PolicyKey 'recycleAutoDelete' -DeleteAction {
-      foreach ($c in $rbCands) { try { $c.Item.InvokeVerb('delete') } catch { } }
+    # v1.18.0 (긴급 수정): InvokeVerb('delete') 는 항목마다 Windows 영구삭제 확인 창을 띄운다.
+    #   그래서 A(언제나 삭제)를 눌러도 250개면 250번을 물어봤다. 승인은 Invoke-DeleteReview 에서
+    #   한 번만 받고, 그 뒤에는 확인 창 없이 휴지통 저장 파일($R) + 메타데이터($I) 를 함께 지운다.
+    $approved = Invoke-DeleteReview -Target '휴지통 (30일 이상 지난 파일)' -Items $rbCands -PolicyKey 'recycleAutoDelete' -Notice @('승인하면 Windows 확인 창 없이 한 번에 삭제됩니다.') -DeleteAction {
+      foreach ($c in $rbCands) {
+        try { [void](Remove-RecycleItemSilent -Path ([string]$c.Item.Path)) } catch { }
+      }
     }
     if ($approved) {
       Write-LogEntry "RecycleBin: PASS - Removed $($rbCands.Count) files ($sizeMB MB) older than 30 days"
