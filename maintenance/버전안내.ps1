@@ -95,7 +95,7 @@ function Get-CurrentRawDescription {
   }
   # 로컬 카나리 버전은 README에 아직 올라가기 전이라 행이 없다.
   # 이 경우 공개 예약표(UPDATE_SCHEDULE.md)의 해당 버전 행을 써서
-  # "전 버전 대비 현재 기능 변경점"을 채운다. 예: v1.16.0 → 1.18.1 의 6건(긴급 수정 포함).
+  # "전 버전 대비 현재 기능 변경점"을 채운다. 예: v1.16.0 → 1.18.1 의 7건(긴급 수정 + A/Y/N/X 개정 포함).
   $row = @(Get-ScheduleRows | Where-Object { (($_.Ver -replace '^v', '').Trim()) -eq $Version } | Select-Object -First 1)
   if ($row.Count -gt 0) { return $row[0].Desc }
   return ''

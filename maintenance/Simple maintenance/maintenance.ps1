@@ -41,7 +41,11 @@ param(
   # v1.15.0: 업데이트 오류 코드 해석 함수만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
   [switch]$SelfTestUpdateFail,
   # v1.18.0: 휴지통 조용 삭제(개별 확인 창 없음)만 가상 데이터로 검증하고 종료 (개발/회귀 테스트용).
-  [switch]$SelfTestRecycle
+  [switch]$SelfTestRecycle,
+  # v1.18.1: A/Y/N/X 선택 해석과 파일별 번호 선택을 가상 데이터로 검증하고 종료.
+  [switch]$SelfTestDeleteReview,
+  # v1.18.1: X 로 끈 삭제 기능을 다시 켠다(안전장치 — config.json 직접 수정 없이 되돌릴 수 있게).
+  [switch]$EnableDelete
 )
 
 Set-StrictMode -Version Latest
@@ -731,13 +735,12 @@ $defaults = @{
   notifyOnFail             = $true     # FAIL 시 알림(토스트 + last-result.json) 표시
   hfCacheWarnGB            = 150       # HuggingFace 캐시 경고 기준 (GB). 절대 자동 삭제하지 않음
   autoInstallUpdates       = $false    # Windows Update 자동 설치(기본 꺼짐). 재부팅이 필요한 업데이트는 사용자가 결정
-  # --- 삭제 전 확인 (2026-11-12 사용자 요청) ---
-  #   파일을 지우기 전에 항상 목록을 보여주고 y 를 눌러야만 지운다.
+  # --- 삭제 전 확인 (2026-11-12 사용자 요청, v1.18.1 규칙 개정) ---
+  #   파일을 지우기 전에 목록을 보여주고 A/Y/N/X 중 하나를 고른다.
   #   예약(자동) 실행은 물어볼 사람이 없으므로 아무것도 지우지 않고 보류만 기록한다.
-  #   ※ 2026-11-20(v1.14.0)부터 A(언제나 삭제) 선택을 단계별로 기억할 수 있다.
-  #      A 는 사용자가 명시적으로 눌렀을 때만 저장되며, 저장된 경우에만 자동 삭제한다.
-  # --- v1.14.0: A(언제나 삭제) 기억 설정 ---
-  #   "A는 언제나 삭제 / Y는 현재 삭제 / N은 거부" (2026-11-20 사용자 요청)
+  #   v1.18.1: A=전체 즉시 삭제(전역 저장) / Y=파일별 번호 선택 / N=취소 / X=삭제 기능 영구 끔.
+  # --- v1.14.0: 카테고리별 자동 삭제 기억 설정 (하위 호환) ---
+  #   기존 "A는 언제나 / Y는 현재 / N은 거부" 키는 그대로 읽되, 새 A 는 deleteAlways 에도 저장한다.
   #   true 이면 해당 단계에서 묻지 않고 지운다. 기본 false = 매번 묻는다.
   tempAutoDelete           = $false   # 임시 폴더의 오래된 파일
   browserCacheAutoDelete   = $false   # 브라우저 캐시 (30일 이상)
@@ -747,6 +750,11 @@ $defaults = @{
   coreServicesAlwaysEnable = $false   # 업데이트 핵심 4개 서비스를 언제나 켜기 (A 선택 시 저장)
   werTempAutoDelete        = $false   # WER 덤프 포함 임시 파일 항상 삭제 (A 선택 시 저장)
   searchResidueAutoDelete  = $false   # 삭제 찌꺼기(깨진 바로가기 등) 항상 삭제 (A 선택 시 저장)
+  # --- v1.18.1: A=전체 즉시 삭제 / X=삭제 기능 영구 끔 (전역) ---
+  #   A 를 한 번 누르면 휴지통·임시파일·캐시 등 모든 종류를 다시 묻지 않고 지운다(예약 실행 포함).
+  #   X 를 누르면 삭제 확인 창도, 삭제 자체도 더 이상 뜨지 않는다. 재개는 -EnableDelete 또는 config 수동 변경.
+  deleteAlways             = $false   # A: 모든 삭제 항목을 확인 없이 자동 삭제
+  deleteDisabled           = $false   # X: 삭제 기능 자체를 영구 비활성화
   # --- 광고/추천 (2026-11-09 추가) ---
   #   Windows 11 은 기본값이 "광고 ON" 이라 새 PC/재설치 후 프로모션이 다시 나타난다.
   #   adQuiet 는 HKCU 값만 바꾸므로 관리자 없이도 되고, 전부 되돌릴 수 있다.
@@ -792,7 +800,7 @@ function Assert-ConfigSchema {
              'adQuiet','adQuietKeepLockScreen','adQuietMutePromoToasts','adQuietDisableTipsTasks',
              'oldDriverCleanup','oldDriverCheckDays',
               'tempAutoDelete','browserCacheAutoDelete','recycleAutoDelete','autoFeedback','explainMode',
-              'coreServicesAlwaysEnable','werTempAutoDelete','searchResidueAutoDelete',
+              'coreServicesAlwaysEnable','werTempAutoDelete','searchResidueAutoDelete','deleteAlways','deleteDisabled',
              'adBlockEnabled','adBlockCategories','adBlockExtraDomains','adBlockAllowDomains','adBlockMaxDomains',
              'adDnsEnabled','adDnsServers')
   $types = @{ diskThresholdGB = [int]; tempDirs = [string[]]; servicesToCheck = [string[]]; restartServices = [string[]]; criticalServices = [string[]];
@@ -806,6 +814,7 @@ function Assert-ConfigSchema {
               oldDriverCleanup = [bool]; oldDriverCheckDays = [int];
               tempAutoDelete = [bool]; browserCacheAutoDelete = [bool]; recycleAutoDelete = [bool];
               coreServicesAlwaysEnable = [bool]; werTempAutoDelete = [bool]; searchResidueAutoDelete = [bool];
+               deleteAlways = [bool]; deleteDisabled = [bool];
               adBlockEnabled = [bool]; adBlockCategories = [string[]]; adBlockExtraDomains = [string[]]; adBlockAllowDomains = [string[]]; adBlockMaxDomains = [int];
               adDnsEnabled = [bool]; adDnsServers = [string[]] }
   foreach ($prop in $cfg.PSObject.Properties) {
@@ -875,6 +884,64 @@ function Set-CfgBool {
   } catch {
     Write-LogEntry "Delete Review: WARN - '$Key' 설정 저장 실패: $($_.Exception.Message)"
     return $false
+  }
+}
+
+# v1.18.1: 삭제 선택 해석 (A=전체 즉시 / Y=파일별 번호 / N=취소 / X=삭제 기능 영구 끔).
+#   실제 콘솔 입력과 SelfTest 가 같은 함수를 쓰므로 회귀 검증이 가능하다.
+function Get-DeleteChoice {
+  param([AllowEmptyString()][string]$Answer)
+  $a = "$Answer"
+  if ($a -match '^\s*(a|all|언제나|항상|전체)\s*$') { return 'A' }
+  if ($a -match '^\s*(x|끔|끄기|사용안함|사용 안 함)\s*$') { return 'X' }
+  if ($a -match '^\s*(y|yes|예|ㅇ|1|선택)\s*$') { return 'Y' }
+  return 'N'   # n/no/아니/ㅂ/0/빈값/모르는 입력 → 취소(안전 기본값)
+}
+
+# v1.18.1: Y 에서 입력한 "1,3,5" 번호를 0기반 인덱스로 바꾼다. 범위 밖·중복은 버린다.
+function Get-DeleteSelection {
+  param([AllowEmptyString()][string]$Answer, [int]$Count)
+  $picked = @()
+  if ($Count -le 0) { return $picked }
+  foreach ($token in (@("$Answer") -split '[,\s]+')) {
+    if ([string]::IsNullOrWhiteSpace($token)) { continue }
+    $num = 0
+    if (-not [int]::TryParse($token, [ref]$num)) { continue }
+    if ($num -ge 1 -and $num -le $Count -and $picked -notcontains ($num - 1)) { $picked += ($num - 1) }
+  }
+  return @($picked)
+}
+
+# v1.18.1: A/Y/N/X 해석 회귀 테스트 (실제 삭제·설정 저장 없이 순수 함수만 검증).
+if ($SelfTestDeleteReview) {
+  $script:drFail = 0
+  function Assert-DR([string]$Name, [bool]$Ok) { if ($Ok) { "PASS $Name" } else { "FAIL $Name"; $script:drFail++ } }
+  foreach ($v in @('a','all','언제나','항상','전체')) { Assert-DR "A=$v" ((Get-DeleteChoice $v) -eq 'A') }
+  foreach ($v in @('x','끔','끄기','사용안함')) { Assert-DR "X=$v" ((Get-DeleteChoice $v) -eq 'X') }
+  foreach ($v in @('y','yes','예','ㅇ','1','선택')) { Assert-DR "Y=$v" ((Get-DeleteChoice $v) -eq 'Y') }
+  foreach ($v in @('n','no','아니','ㅂ','0','')) { Assert-DR "N=$v" ((Get-DeleteChoice $v) -eq 'N') }
+  Assert-DR '모르는 입력은 취소' ((Get-DeleteChoice 'blah') -eq 'N')
+  $sel = @(Get-DeleteSelection -Answer '1,3,5' -Count 10)
+  Assert-DR '번호 선택 1,3,5' (($sel.Count -eq 3) -and ($sel[0] -eq 0) -and ($sel[1] -eq 2) -and ($sel[2] -eq 4))
+  $sel2 = @(Get-DeleteSelection -Answer '0,11,x,3,3' -Count 5)
+  Assert-DR '범위 밖·중복 제외' (($sel2.Count -eq 1) -and ($sel2[0] -eq 2))
+  $sel3 = @(Get-DeleteSelection -Answer '' -Count 5)
+  Assert-DR '빈 입력은 선택 없음' ($sel3.Count -eq 0)
+  "SelfTestDeleteReview: fail=$script:drFail"
+  if ($script:drFail -gt 0) { exit 1 }
+  exit 0
+}
+
+# v1.18.1: X 로 꺼진 삭제 기능을 되돌리는 안전장치.
+#   -EnableDelete 로 실행하면 deleteDisabled/deleteAlways 를 모두 false 로 되돌린 뒤 계속 진행한다.
+if ($EnableDelete) {
+  $okOff = Set-CfgBool -Key 'deleteDisabled' -Value $false
+  $okAlways = Set-CfgBool -Key 'deleteAlways' -Value $false
+  if ($okOff -and $okAlways) {
+    Write-Host (L '삭제 기능을 다시 켰습니다(X 해제).' 'Delete feature re-enabled (X cleared).')
+    Write-LogEntry 'Delete Policy: X 해제 — 삭제 기능 다시 활성화'
+  } else {
+    Write-Host (L '삭제 기능 되돌리기에 실패했습니다. config.json 을 직접 확인하세요.' 'Could not re-enable delete feature. Check config.json.')
   }
 }
 
@@ -980,10 +1047,13 @@ function Test-CriticalFreeSpace {
   return ($FreeBytes -lt $crit)
 }
 
-# 삭제 후보 목록을 보여주고 승인 여부를 반환한다. 승인된 경우에만 DeleteAction 을 실행한다.
+# 삭제 후보 목록을 보여주고 선택을 받아 승인 여부를 반환한다. 선택된 항목만 DeleteAction 에 넘긴다.
 #   $Items  : @( @{ Name='표시할 경로'; Size=바이트; Date=날짜 } )  ← $Items[i].Name/.Size/.Date 로 접근
 #   $Notice : 목록 위에 함께 보여줄 안내문(예: "지금 C 드라이브 여유 공간은 0.1GB 입니다.")
 #             물어볼 수 없는 실행(예약)에서도 로그/결과 txt 에 남기기 위해 기록에 포함한다.
+#   v1.18.1: A=전부 즉시 삭제+전역 저장 / Y=번호로 파일별 선택 / N=취소 / X=삭제 기능 영구 끔.
+#            DeleteAction 은 param($Selected) 로 선택된 항목만 받는다.
+#            실제 삭제분은 $script:lastDeleteSelected 에도 남겨 호출부가 개수를 집계한다.
 function Invoke-DeleteReview {
   param(
     [Parameter(Mandatory = $true)][string]$Target,
@@ -991,107 +1061,152 @@ function Invoke-DeleteReview {
     [scriptblock]$DeleteAction = $null,
     [int]$ShowMax = 20,
     [AllowEmptyCollection()][string[]]$Notice = @(),
-    # v1.14.0: A(언제나 삭제) 선택을 저장할 config 키. 비우면 A 저장 없이 Y/N 만 묻는다.
+    # v1.14.0: 카테고리별 자동 삭제 키(하위 호환). v1.18.1 부터 A 는 전역 deleteAlways 에도 저장한다.
     [string]$PolicyKey = ''
   )
 
   $list = @($Items)
   if ($list.Count -eq 0) { return $false }
 
+  # X(삭제 기능 영구 끔)가 저장되어 있으면 화면도 묻지도 않고 전부 건너뛴다.
+  if ([bool](Get-Cfg 'deleteDisabled')) {
+    if (-not $script:deleteDisabledNotified) {
+      Write-LogEntry 'Delete Policy: X 설정 — 삭제 기능이 꺼져 있어 모든 삭제 화면을 건너뜁니다.'
+      $script:deleteDisabledNotified = $true
+    }
+    return $false
+  }
+
   $totalBytes = 0.0
   foreach ($it in $list) { if ($null -ne $it.Size) { $totalBytes += [double]$it.Size } }
   $sizeText = Format-ByteSize $totalBytes
 
-  # 화면에 보여줄 목록 (큰 것부터 ShowMax 개) — 콘솔 출력 전용
-  #   ⚠ 기록용 목록($paths)은 따로 만든다. 화면에는 20개만 보여도 결과 txt·복구용 파일에는
-  #     "폴더 경로 + 파일명"을 전부 남긴다(2026-11-13 사용자 요청).
-  #     → 만화 폴더 수십 개에 각각 1.jpg 2.jpg 3.jpg 가 있어도 어느 폴더의 파일인지 구분된다.
-  $preview = @()
-  $paths = @()
-  $pathLimit = 5000
+  # 큰 것부터 한 번만 정렬한다. 번호 목록(Y 선택)과 기록 목록이 같은 순서를 쓴다.
   $sorted = @($list | Sort-Object -Property @{ Expression = { [double]$_.Size } } -Descending)
+  $pathLimit = 5000
+  $pathsByIndex = @()
+  $preview = @()
   foreach ($it in $sorted) {
     $dateText = ''
     $dateFull = ''
     if ($it.Date) {
       try { $dateFull = ([datetime]$it.Date).ToString('yyyy-MM-dd HH:mm'); $dateText = ', ' + ([datetime]$it.Date).ToString('yyyy-MM-dd') } catch { }
     }
-    if ($paths.Count -lt $pathLimit) {
-      $paths += [ordered]@{ path = [string]$it.Name; size = [double]$it.Size; date = $dateFull }
+    # 결과 txt·복구용 파일에는 화면 20개가 아니라 전체 경로를 남긴다(2026-11-13 사용자 요청).
+    if ($pathsByIndex.Count -lt $pathLimit) {
+      $pathsByIndex += [ordered]@{ path = [string]$it.Name; size = [double]$it.Size; date = $dateFull }
     }
     if ($preview.Count -lt $ShowMax) {
       $preview += ('{0} ({1}{2})' -f $it.Name, (Format-ByteSize ([double]$it.Size)), $dateText)
     }
   }
-  $moreCount = $list.Count - $preview.Count
+  $moreCount = $sorted.Count - $preview.Count
   if ($moreCount -lt 0) { $moreCount = 0 }
-  $pathsMore = $list.Count - $paths.Count
+  $pathsMore = $sorted.Count - $pathsByIndex.Count
   if ($pathsMore -lt 0) { $pathsMore = 0 }
 
-  # --- 결정: 설정에 기억된 A / 사용자 A·Y·N / 보류(물어볼 사람 없음) ---
-  #   v1.14.0 (2026-11-20): "A는 언제나 삭제 / Y는 현재 삭제 / N은 거부"
-  #     - A : config 에 true 저장 → 이후 실행(예약 포함)에서 묻지 않고 삭제
-  #     - Y : 이번 실행만 삭제
-  #     - N : 거부 (기본값)
-  #   저장된 A 가 없으면 예약 실행은 여전히 보류(아무것도 지우지 않음).
-  $decision = 'deferred'
-  $always = $false
-  $answerA = $false
-  if (-not [string]::IsNullOrWhiteSpace($PolicyKey)) { $always = [bool](Get-Cfg $PolicyKey) }
+  # --- 결정 (v1.18.1 사용자 확정) ---
+  #   A = 휴지통·임시파일·캐시 등 모든 종류를 확인 없이 바로 삭제 + 전역 설정 저장(예약 실행 포함)
+  #   Y = 파일 하나마다 번호를 골라 그 파일만 삭제 (설정 저장 없음)
+  #   N = 취소 (기본값)
+  #   X = 삭제 기능 자체를 영구히 끔 (다시 켜려면 -EnableDelete)
+  $choice = ''
+  $selected = @()
+  $selectedPaths = @()
+  $fromConfig = $false
+
+  $always = [bool](Get-Cfg 'deleteAlways')
+  if (-not [string]::IsNullOrWhiteSpace($PolicyKey)) { $always = $always -or [bool](Get-Cfg $PolicyKey) }
+
   if ($always) {
+    $choice = 'A'
+    $fromConfig = $true
+    $selected = @($sorted)
+    $selectedPaths = @($pathsByIndex)
     Write-Host ''
     Write-TestHeader ("[삭제 확인] {0} — {1}개 / {2}" -f $Target, $list.Count, $sizeText)
-    Write-Host (L '  → A(언제나 삭제)가 설정에 저장되어 있어 묻지 않고 지웁니다.' '  -> "Always delete" (A) is saved in config; deleting without asking.')
-    Write-LogEntry (L "Delete Review: 설정의 A에 따라 자동 삭제 — $Target" "Delete Review: auto-deleted by saved A - $Target")
-    $decision = 'yes'
+    Write-Host (L '  → A(전체 즉시 삭제)가 설정에 저장되어 있어 묻지 않고 지웁니다.' '  -> A (delete all) is saved in config; deleting without asking.')
   } elseif ($script:askDelete) {
     Write-Host ''
     Write-TestHeader ("[삭제 확인] {0} — {1}개 / {2}" -f $Target, $list.Count, $sizeText)
     foreach ($n in @($Notice)) { if (-not [string]::IsNullOrWhiteSpace($n)) { Write-Host "  $n" } }
-    Write-Host (L '  지우려는 목록:' '  Files to delete:')
-    foreach ($p in $preview) { Write-Host "    · $p" }
-    if ($moreCount -gt 0) { Write-Host "    · ... 외 $moreCount 개" }
+    Write-Host (L '  지우려는 목록 (번호 = 파일 하나):' '  Files to delete (number = one file):')
+    for ($i = 0; $i -lt $sorted.Count; $i++) {
+      $it = $sorted[$i]
+      $dateText = ''
+      if ($it.Date) { try { $dateText = ', ' + ([datetime]$it.Date).ToString('yyyy-MM-dd') } catch { } }
+      Write-Host ('    {0}. {1} ({2}{3})' -f ($i + 1), $it.Name, (Format-ByteSize ([double]$it.Size)), $dateText)
+    }
     $ans = ''
     try {
-      $ans = Read-Host (L '  A = 언제나 삭제(설정에 기억) / Y = 현재만 삭제 / N 또는 Enter = 거부' '  A = always delete (save to config) / Y = delete this time only / N or Enter = keep')
+      $ans = Read-Host (L '  A = 전부 즉시 삭제(설정 저장) / Y = 파일별 번호 선택 / N = 취소 / X = 삭제 기능 영구 끔' '  A = delete all now (save) / Y = pick files by number / N = cancel / X = disable delete forever')
     } catch { $ans = '' }
-    if ("$ans" -match '^\s*(a|all|언제나|항상)\s*$') {
-      $answerA = $true
-      $saved = $true
-      if (-not [string]::IsNullOrWhiteSpace($PolicyKey)) { $saved = Set-CfgBool -Key $PolicyKey -Value $true }
-      if ($saved) {
-        Write-Host (L '  → A: 앞으로 이 항목은 묻지 않고 자동 삭제합니다. (설정에 저장됨)' '  -> A: this item will be deleted automatically from now on (saved).')
+    $choice = Get-DeleteChoice -Answer $ans
+
+    if ($choice -eq 'A') {
+      $savedAlways = Set-CfgBool -Key 'deleteAlways' -Value $true
+      if (-not [string]::IsNullOrWhiteSpace($PolicyKey)) { $null = Set-CfgBool -Key $PolicyKey -Value $true }
+      if ($savedAlways) {
+        Write-Host (L '  → A: 앞으로 어떤 종류든 묻지 않고 바로 지웁니다. (설정에 저장)' '  -> A: from now on, delete any kind without asking (saved).')
       } else {
-        Write-Host (L '  → A: 설정 저장에 실패했지만 이번 실행에서는 삭제합니다.' '  -> A: could not save the setting, but deleting this run anyway.')
+        Write-Host (L '  → A: 설정 저장에 실패했지만 이번 실행에서는 전부 지웁니다.' '  -> A: could not save the setting, but deleting all this run anyway.')
       }
-      $decision = 'yes'
-    } elseif ("$ans" -match '^\s*(y|yes|예|ㅇ|1)\s*$') {
-      $decision = 'yes'   # Y = 현재만. 설정은 바꾸지 않는다.
+      $selected = @($sorted)
+      $selectedPaths = @($pathsByIndex)
+    } elseif ($choice -eq 'Y') {
+      $pick = ''
+      try {
+        $pick = Read-Host (L ('  지울 번호를 쉼표로 입력하세요 (예: 1,3,5 / Enter = 취소) — 전체 {0}개' -f $sorted.Count) ('  Enter file numbers separated by commas (e.g. 1,3,5 / Enter = cancel) - {0} files' -f $sorted.Count))
+      } catch { $pick = '' }
+      $indexes = @(Get-DeleteSelection -Answer $pick -Count $sorted.Count)
+      if ($indexes.Count -eq 0) {
+        $choice = 'N'
+        Write-Host (L '  → 선택한 파일이 없어 취소합니다.' '  -> No file selected; cancelled.')
+      } else {
+        foreach ($ix in $indexes) { $selected += $sorted[$ix]; $selectedPaths += $pathsByIndex[$ix] }
+        Write-Host (L ('  → Y: {0}개만 지웁니다. (설정은 바뀌지 않음)' -f $selected.Count) ('  -> Y: deleting {0} selected files (setting unchanged).' -f $selected.Count))
+      }
+    } elseif ($choice -eq 'X') {
+      $null = Set-CfgBool -Key 'deleteDisabled' -Value $true
+      $null = Set-CfgBool -Key 'deleteAlways' -Value $false
+      if (-not [string]::IsNullOrWhiteSpace($PolicyKey)) { $null = Set-CfgBool -Key $PolicyKey -Value $false }
+      Write-Host (L '  → X: 삭제 기능을 껐습니다. 이제 삭제 화면이 뜨지 않습니다. (다시 켜려면 -EnableDelete)' '  -> X: delete feature disabled. No more delete screens (use -EnableDelete to restore).')
+      $script:deleteDisabledNotified = $true
     } else {
-      $decision = 'no'
+      Write-Host (L '  → N: 아무것도 지우지 않습니다.' '  -> N: nothing will be deleted.')
     }
   }
+
+  $decision = 'deferred'
+  if ($selected.Count -gt 0) { $decision = 'yes' }
+  elseif ($choice -eq 'X') { $decision = 'disabled' }
+  elseif ($script:askDelete -or $always) { $decision = 'no' }
 
   $decisionText = switch ($decision) {
     'yes'  {
-      if ($always) { L '지움 (A — 설정에 기억된 자동 삭제)' 'Deleted (A - remembered auto-delete)' }
-      elseif ($answerA) { L '지움 (A — 언제나 삭제 선택)' 'Deleted (A - always delete chosen)' }
-      else { L '지움 (Y — 현재만 삭제)' 'Deleted (Y - this time only)' }
+      if ($fromConfig) { L '지움 (A — 설정에 저장된 전체 즉시 삭제)' 'Deleted (A - saved delete-all)' }
+      elseif ($choice -eq 'A') { L '지움 (A — 전체 즉시 삭제 선택)' 'Deleted (A - delete all chosen)' }
+      else { L ('지움 (Y — 파일별 선택 {0}개)' -f $selected.Count) ('Deleted (Y - {0} files selected)' -f $selected.Count) }
     }
-    'no'   { L '그대로 둠 (N — 거부)' 'Left as-is (N - rejected)' }
-    default { L '그대로 둠 (자동 실행 — 물어볼 사람이 없어 보류)' 'Left as-is (automatic run - nobody to ask, deferred)' }
+    'no'       { L '그대로 둠 (N — 취소)' 'Left as-is (N - cancelled)' }
+    'disabled' { L '삭제 기능 꺼짐 (X — 이후 화면 없음)' 'Delete disabled (X - no further screens)' }
+    default    { L '그대로 둠 (자동 실행 — 물어볼 사람이 없어 보류)' 'Left as-is (automatic run - nobody to ask, deferred)' }
   }
 
-  # --- 실행 ---
-  if ($decision -eq 'yes') {
-    if ($DeleteAction) {
-      try { & $DeleteAction } catch { Write-LogEntry "Delete Review: WARN - $Target 삭제 중 오류: $($_.Exception.Message)" }
-    }
+  # --- 실행: 선택된 파일만 삭제한다 ---
+  #   호출부가 실제 삭제 개수/용량을 집계할 수 있도록 마지막 선택을 남긴다(Y 부분 선택 대응).
+  $script:lastDeleteSelected = @($selected)
+  if ($decision -eq 'yes' -and $DeleteAction) {
+    try { & $DeleteAction -Selected $selected } catch { Write-LogEntry "Delete Review: WARN - $Target 삭제 중 오류: $($_.Exception.Message)" }
   }
 
-  # --- 복구용 전체 목록 파일 (2026-11-13) ---
+  $selectedBytes = 0.0
+  foreach ($it in $selected) { if ($null -ne $it.Size) { $selectedBytes += [double]$it.Size } }
+  $selectedSizeText = Format-ByteSize $selectedBytes
+
+  # --- 복구용 전체 목록 파일 (2026-11-13, v1.18.1: 선택된 파일만 기록) ---
   #   사용자 요청: "삭제한 파일의 폴더 경로까지 남아야 복구할 수 있다. 결과 txt 에도 있어야 한다."
-  #   y 를 눌러 실제로 지운 경우 logs\deleted-<시각>.txt 에 전체 경로를 탭 구분으로 남긴다.
+  #   실제로 지운 경우 logs\deleted-<시각>.txt 에 전체 경로를 탭 구분으로 남긴다.
   #   (현장에서 복구 도구(Recuva/PhotoRec/winfr)에 그대로 붙여넣을 수 있게 하기 위함)
   $deletedFile = ''
   if ($decision -eq 'yes') {
@@ -1108,15 +1223,14 @@ function Invoke-DeleteReview {
       $buf.Add('# 자동 유지보수 — 실제로 삭제한 파일 전체 목록 (복구용)')
       $buf.Add('# 삭제 시각: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
       $buf.Add('# 대상: ' + $Target)
-      $buf.Add(('# 개수 / 용량: ' + $list.Count + '개 / ' + $sizeText))
+      $buf.Add(('# 개수 / 용량: ' + $selected.Count + '개 / ' + $selectedSizeText))
       foreach ($nt in @($Notice)) { if (-not [string]::IsNullOrWhiteSpace($nt)) { $buf.Add('# 안내: ' + $nt) } }
       $buf.Add('#')
       $buf.Add('# 전체경로' + "`t" + '크기(바이트)' + "`t" + '수정/삭제일')
-      foreach ($pth in $paths) {
+      foreach ($pth in $selectedPaths) {
         $line = ([string]$pth.path) + "`t" + ([string]$pth.size) + "`t" + ([string]$pth.date)
         $buf.Add($line)
       }
-      if ($pathsMore -gt 0) { $buf.Add(('# ... 외 ' + $pathsMore + '개 (파일 기록 한도 ' + $pathLimit + '개 초과)')) }
       [IO.File]::WriteAllLines($deletedFile, $buf, (New-Object System.Text.UTF8Encoding($true)))
     } catch {
       Write-LogEntry "Delete Review: WARN - 삭제 목록 파일을 만들지 못했습니다: $($_.Exception.Message)"
@@ -1125,24 +1239,27 @@ function Invoke-DeleteReview {
   }
 
   # --- 기록(로그 + 리포트 + last-result.json) ---
-  Write-LogEntry ("Delete Review: {0} - {1}개 / {2} → {3}" -f $Target, $list.Count, $sizeText, $decisionText)
+  Write-LogEntry ("Delete Review: {0} - 후보 {1}개 / {2} → {3}" -f $Target, $list.Count, $sizeText, $decisionText)
   foreach ($n in @($Notice)) { if (-not [string]::IsNullOrWhiteSpace($n)) { try { Add-Content -Path $logPath -Value "    $n" -Encoding UTF8 } catch { } } }
-  # 로그에는 화면(20개)이 아니라 전체 경로를 남긴다 — 나중에 복구할 때 필요하다.
-  foreach ($pth in $paths) {
+  # 로그에는 화면 목록이 아니라 실제로 지운 전체 경로를 남긴다 — 나중에 복구할 때 필요하다.
+  foreach ($pth in $selectedPaths) {
     $logLine = "    · " + [string]$pth.path + " (" + (Format-ByteSize ([double]$pth.size)) + ", " + [string]$pth.date + ")"
     try { Add-Content -Path $logPath -Value $logLine -Encoding UTF8 } catch { }
   }
-  if ($pathsMore -gt 0) { try { Add-Content -Path $logPath -Value "    · ... 외 $pathsMore 개 (기록 한도 ${pathLimit}개 초과)" -Encoding UTF8 } catch { } }
   if ($deletedFile) { try { Add-Content -Path $logPath -Value "    → 삭제 기록 파일: $deletedFile" -Encoding UTF8 } catch { } }
 
   $entry = [ordered]@{
     target       = $Target
     count        = $list.Count
     size         = $sizeText
+    choice       = $choice
+    deletedCount = $selected.Count
+    deletedSize  = $selectedSizeText
     decision     = $decision
     decisionText = $decisionText
     notice       = @($Notice)
-    paths        = @($paths)
+    paths        = @($pathsByIndex)
+    deletedPaths = @($selectedPaths)
     pathsMore    = $pathsMore
     deletedFile  = $deletedFile
     shown        = @($preview)
@@ -2577,7 +2694,8 @@ try {
             }
             $notice += '필요한 자료가 있으시면 백업을 하세요.'
             $approved = Invoke-DeleteReview -Target "임시 폴더 ($($chk.Path))" -Items $dumpCands -Notice $notice -PolicyKey 'tempAutoDelete' -DeleteAction {
-              foreach ($c in $dumpCands) { try { Remove-Item -LiteralPath $c.Name -Force -ErrorAction SilentlyContinue } catch { } }
+              param($Selected)
+              foreach ($c in $Selected) { try { Remove-Item -LiteralPath $c.Name -Force -ErrorAction SilentlyContinue } catch { } }
             }
             if ($approved) {
               $deletedBytes += $pickedBytes
@@ -2712,11 +2830,12 @@ try {
     } catch { }
     if ($tmpItems.Count -gt 0) {
       $tmpNotice = @(
-        (L '7일 이상 지난 임시 파일과 WER 덤프입니다. A=언제나(무인 포함) / Y=이번만 / N=거부.' 'Temp files and WER dumps older than 7 days. A = always (incl. unattended) / Y = this time only / N = keep.'),
+        (L '7일 이상 지난 임시 파일과 WER 덤프입니다. A=전부 즉시 / Y=파일별 선택 / N=취소 / X=삭제 기능 끔.' 'Temp files and WER dumps older than 7 days. A = delete all / Y = pick files / N = cancel / X = disable delete.'),
         (L '필요한 자료가 있으면 백업하세요. 키트 결과 파일·문서는 절대 지우지 않습니다.' 'Back up anything you need. Kit result files and documents are never deleted.')
       )
       $null = Invoke-DeleteReview -Target (L '임시 파일(WER 덤프 포함)' 'Temp files (incl. WER dumps)') -Items $tmpItems -Notice $tmpNotice -PolicyKey 'werTempAutoDelete' -DeleteAction {
-        foreach ($c in $tmpItems) {
+        param($Selected)
+        foreach ($c in $Selected) {
           $rp = if ($c.Real) { [string]$c.Real } else { [string]$c.Name }
           try { Remove-Item -LiteralPath $rp -Force -ErrorAction SilentlyContinue } catch { }
         }
@@ -2745,11 +2864,12 @@ try {
     } catch { }
     if ($junkItems.Count -gt 0) {
       $junkNotice = @(
-        (L '프로그램 제거 후 남은 깨진 바로가기입니다. A=언제나(무인 포함) / Y=이번만 / N=거부.' 'Broken shortcuts left after program removal. A = always (incl. unattended) / Y = this time only / N = keep.'),
+        (L '프로그램 제거 후 남은 깨진 바로가기입니다. A=전부 즉시 / Y=파일별 선택 / N=취소 / X=삭제 기능 끔.' 'Broken shortcuts left after program removal. A = delete all / Y = pick files / N = cancel / X = disable delete.'),
         (L '표시 경로의 계정명은 <사용자> 로 마스킹되어 결과 파일에 기록됩니다.' 'Account names in displayed paths are masked as <user> in result files.')
       )
       $null = Invoke-DeleteReview -Target (L '삭제 찌꺼기(깨진 바로가기)' 'Leftovers (broken shortcuts)') -Items $junkItems -Notice $junkNotice -PolicyKey 'searchResidueAutoDelete' -DeleteAction {
-        foreach ($c in $junkItems) {
+        param($Selected)
+        foreach ($c in $Selected) {
           $rp = if ($c.Real) { [string]$c.Real } else { [string]$c.Name }
           try { Remove-Item -LiteralPath $rp -Force -ErrorAction SilentlyContinue } catch { }
         }
@@ -3801,10 +3921,11 @@ try {
   if ($cacheCands.Count -gt 0) {
     $dumpCands = $cacheCands
     $approved = Invoke-DeleteReview -Target '브라우저 캐시 (30일 이상)' -Items $dumpCands -PolicyKey 'browserCacheAutoDelete' -DeleteAction {
-      foreach ($c in $dumpCands) { try { Remove-Item -LiteralPath $c.Name -Force -ErrorAction SilentlyContinue } catch { } }
+      param($Selected)
+      foreach ($c in $Selected) { try { Remove-Item -LiteralPath $c.Name -Force -ErrorAction SilentlyContinue } catch { } }
     }
     if ($approved) {
-      foreach ($c in $dumpCands) { $totalCleaned += [double]$c.Size; $cleanedCount++ }
+      foreach ($c in @($script:lastDeleteSelected)) { $totalCleaned += [double]$c.Size; $cleanedCount++ }
     }
   }
   if ($totalCleaned -gt 0) {
@@ -4484,15 +4605,18 @@ try {
     #   그래서 A(언제나 삭제)를 눌러도 250개면 250번을 물어봤다. 승인은 Invoke-DeleteReview 에서
     #   한 번만 받고, 그 뒤에는 확인 창 없이 휴지통 저장 파일($R) + 메타데이터($I) 를 함께 지운다.
     $approved = Invoke-DeleteReview -Target '휴지통 (30일 이상 지난 파일)' -Items $rbCands -PolicyKey 'recycleAutoDelete' -Notice @('승인하면 Windows 확인 창 없이 한 번에 삭제됩니다.') -DeleteAction {
-      foreach ($c in $rbCands) {
+      param($Selected)
+      foreach ($c in $Selected) {
         try { [void](Remove-RecycleItemSilent -Path ([string]$c.Item.Path)) } catch { }
       }
     }
+    $pickedRb = @($script:lastDeleteSelected)
+    $pickedRbMB = [math]::Round((($pickedRb | Measure-Object -Property Size -Sum).Sum) / 1MB, 1)
     if ($approved) {
-      Write-LogEntry "RecycleBin: PASS - Removed $($rbCands.Count) files ($sizeMB MB) older than 30 days"
-      Add-AutoFix ("휴지통 $($rbCands.Count)개 파일 ${sizeMB}MB 비움 (30일 이상 경과)")
+      Write-LogEntry "RecycleBin: PASS - Removed $($pickedRb.Count) files ($pickedRbMB MB) older than 30 days"
+      Add-AutoFix ("휴지통 $($pickedRb.Count)개 파일 ${pickedRbMB}MB 비움 (30일 이상 경과)")
     } else {
-      Write-LogEntry "RecycleBin: SKIP - 사용자가 지우지 않기로 함 ($($rbCands.Count)개 / ${sizeMB}MB 유지)"
+      Write-LogEntry "RecycleBin: SKIP - 삭제하지 않음 ($($pickedRb.Count)개 선택 / $($rbCands.Count)개 후보 유지)"
     }
   } else {
     Write-LogEntry 'RecycleBin: PASS - No old recycle bin files'
@@ -6329,6 +6453,12 @@ $script:reportEnglishMap = [ordered]@{
   '지움 (A — 언제나 삭제 선택)' = 'Deleted (A - always delete chosen)'
   '지움 (Y — 현재만 삭제)' = 'Deleted (Y - this time only)'
   '그대로 둠 (N — 거부)' = 'Left as-is (N - rejected)'
+  # v1.18.1: A/Y/N/X 개정 문구
+  '지우려는 목록 (번호 = 파일 하나):' = 'Files to delete (number = one file):'
+  '지움 (A — 설정에 저장된 전체 즉시 삭제)' = 'Deleted (A - saved delete-all)'
+  '지움 (A — 전체 즉시 삭제 선택)' = 'Deleted (A - delete all chosen)'
+  '그대로 둠 (N — 취소)' = 'Left as-is (N - cancelled)'
+  '삭제 기능 꺼짐 (X — 이후 화면 없음)' = 'Delete disabled (X - no further screens)'
   ' (기록 한도 ' = ' (record limit '
   '개 초과)' = ' exceeded)'
   '삭제 기록 파일: ' = 'Deletion record file: '
