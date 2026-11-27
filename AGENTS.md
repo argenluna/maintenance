@@ -11,8 +11,8 @@
 
 ## ⚠️ CRITICAL: Path & Environment
 - **작업 디렉토리**: `C:\Users\dal04\winter\train\` (유일한 실제 작업 위치, 모든 스크립트/어댑터/데이터)
-- **I: drive 쓰기 가능** (2026-08-01 검증됨): `I:\model_v79_bf16`, `I:\model_v79_4bit` 저장 성공. (구 기록 "I/O 불가"는 폐기)
-- **Base 모델**: `TrevorJS/gemma-4-E4B-it-uncensored` (gemma-4)
+- **I: drive 쓰기 가능** (2026-08-01 검증됨): `I:\model_v79_bf16` 저장 성공. (구 기록 "I/O 불가"는 폐기) — `model_v79_4bit`는 bf16과 완전 중복이라 2026-11-22 정리로 삭제됨. 4-bit 로드는 `model_v79_bf16`에 `load_in_4bit=True` 적용. **2026-11-27 정리로 베이스 모델 HF 캐시(74.56GB)와 GGUF(4.97GB)도 삭제됨** → 기본 모델에서 재학습하려면 74GB 재다운로드 필요. `I:\model_v79_bf16`(머지 모델)은 유지.
+- **Base 모델**: `TrevorJS/gemma-4-E4B-it-uncensored` (gemma-4) — 캐시 삭제로 로컬 원본 없음(위 참고)
 - **GPU**: RTX 3060 12GB, 4-bit QLoRA rank=32
 - **HF_TOKEN 불필요** (uncensored 모델은 public)
 - **Windows cp949 주의**: 모든 스크립트에 `# -*- coding: utf-8 -*-` 필수
@@ -112,6 +112,7 @@ Start-Process python.exe validate_fast.py v[ver] -WindowStyle Hidden
 - 실제 파이프라인·명령·검증된 파라미터는 전부 `I:\code\.opencode\skills\music-mixing\` 참고 (2026-10-18~ 세션 기록)
 - **작업 종료 전**: 새 발견/명령/결과를 해당 스킬 폴더의 한글 MD(음악-믹싱.md 등)에 추가 갱신할 것 (각 MD 상단에 갱신 규칙 있음)
 - **새 도메인 발생 시**: 기존 4스킬(믹싱/음성변환/음조절/톤조절)에 안 맞는 반복 작업(마스터링, 드럼 편집 등)이 생기면 → `I:\code\.opencode\skills\<영문소문자-하이픈>\SKILL.md` + 한글 상세 MD를 직접 생성하고 AGENTS.md에 한 줄 추가
+- **언믹싱/이펙트/검증 (2026-11-24)**: mp3 → 보컬 레인 분리=`unmixing`, 이펙트 자동 감지·추출·전이=`effect`, mix 후 5축 품질 검증=`effect-verification` (실행 코드 `I:\code\haruharu\unmixer\`). mixing(변환·합성)과 섞지 말 것. 가수 화음/백보컬=변환, 합창/삽입음=원본 보존, 솔로/그룹은 f0 궤적으로 자동 판정. 전체 체인 **`unmix → RVC → effect → mix → effect-verification`** (음정은 효과보다 먼저). 검증은 과적용/깨짐/음색죽음/보컬묻힘/밋밋함을 잡고 문제 시 effect 강도 피드백으로 최대 2회 재조립. 전 레인 일괄 리버브 삭제, 228개 DSP, 194초 곡도 피크 RAM 0.35GB.
 
 ## Key Files (C:\Users\dal04\winter_train\)
 | File | Description |
@@ -129,7 +130,7 @@ Start-Process python.exe validate_fast.py v[ver] -WindowStyle Hidden
 | `merge_v79.py` | 어댑터→독립모델 머지 (비전타워 ParamWrapper LoRA 스킵, torch.save 방식) |
 | `quantize_v79.py` | 4-bit 폴더 생성 (bf16 복사 + config 패치) — 실행 전 검증됨 |
 | `I:\model_v79_bf16\` | **✅ bf16 독립 머지 모델** (14.79GB `pytorch_model.bin` torch 포맷, 검증 통과) |
-| `I:\model_v79_4bit\` | **✅ 4-bit 로드 모델** (bf16 사본 + clean config, `load_in_4bit=True`로 로드, VRAM 10.56GB/12GB, 검증 통과) |
+| `I:\model_v79_4bit\` | ~~삭제됨 (2026-11-22)~~ — bf16과 바이트 동일 중복. `I:\model_v79_bf16\`을 `load_in_4bit=True`로 로드하면 동일 동작 (VRAM 10.56GB/12GB 검증) |
 
 ## 독립 모델 (merge/quantize) 핵심 교훈
 1. **머지**: 언어모델 LoRA만 머지. 비전타워 Gemma4ClippableLinear LoRA는 `parameter_name='down_proj'`라 bf16/CPU 로드 시 `AttributeError: 'Linear' has no attribute 'q_proj'` → 스킵해야 함 (텍스트 페르소나는 비전 미사용)
@@ -137,6 +138,13 @@ Start-Process python.exe validate_fast.py v[ver] -WindowStyle Hidden
 3. **bnb 저장도 불가**: bnb `save_pretrained`도 dequantized bf16 저장이라 동일 크래시 → 4-bit는 "저장"이 아니라 "**로드 시 4-bit**"로 해결 (`load_in_4bit=True`)
 4. **⚠️ config.json에 `quantization_config` 내장 금지**: 내장하면 transformers 5.5+bnb에서 592개 모듈 `quant_state` 누락 → `AssertionError` (assert `module.weight.shape[1] == 1`). 반드시 **clean config + 명시적 `BitsAndBytesConfig(load_in_4bit=True, nf4, double_quant, bfloat16)`** 로 로드
 5. **4-bit 로드 검증**: missing quant_state=0, 생성 OK, VRAM peak 10.56GB (RTX 3060 12GB 여유). bf16 폴더도 동일 방식으로 4-bit 로드 가능
+
+## 자동 정리 (2026-11-22)
+- `opencode-cleanup` (매주 일 03:00, SYSTEM, `-Force`): `I:\code\scripts\cleanup-opencode.ps1` — 마지막 수정 30일 초과 임시 코드/로그 영구 삭제(휴지통 이동), `I:\code\.cleanup-opencode\state.json` 추적.
+- `OpenCode-IDriveCleanup-6mo` (매주 일 04:00, SYSTEM, `-Force`): `I:\code\scripts\cleanup-idrive.ps1` — `I:\` 마지막 수정 자료 + 완전 중복 모델 삭제, `idrive_deleted_manifest.csv`(UTF-8) 기록. **보관 기간은 I: 여유 공간 연동**: 여유 ≥10% → 6개월(180일), <10% → 5개월(150일)부터 시작해 정리 후에도 <10%면 4개월(120일) → 3개월(90일) → 2개월(60일) → 1개월(30일)까지 단계적 단축, 1개월에서도 부족하면 경고만 하고 그 이하로는 줄이지 않음. 단계별 시뮬레이션(신규/누적 후보·확보량·예상 여유)을 로그에 출력. **보호 경로는 OpenCode 구동 필수 요소만**: `I:\opencode`, `I:\code\.opencode`, `I:\code\scripts`, `I:\code\.cleanup-opencode`. 그 외(베이스 모델 캐시·gguf·어댑터·학습/음악/배포 자료)는 모두 기간 기준 삭제 범위. 2026-11-27 직접 `-Force` 실행으로 67개/109.97GB 삭제(여유 9.2% → 34.2%), 로그 `I:\code\.cleanup-opencode\idrive_force_20261127.log`. 원본 백업: `cleanup-idrive.ps1.bak-20261127`.
+- `OpenCode-ReplayCleanup-3mo` (매주 월, `last_run.txt` 마커로 간격 보장): Replay outputs 3개월 초과 정리.
+- **⚠️ 두 정리 스크립트는 UTF-8 BOM 필수**: 예약 작업이 `powershell.exe`(5.1)를 쓰므로 BOM 없이 저장하면 한글 리터럴이 cp949로 깨져 파서 에러 → 작업 RESULT=1. 수정 후 반드시 PS 5.1 파서 검사 + BOM 확인.
+- 로그는 `I:\code\.cleanup-opencode\autocleanup.log`, `idrive_autorun.log` (PS 5.1 `*>` 리다이렉트라 **UTF-16LE**) → `Get-Content -Encoding Unicode` 로 읽을 것.
 
 ## Next Steps
 1. ~~Generation parameter tuning~~ → **완료**: 0.4/0.85/1.3 확정 (+2점, AI 가드 추가)
@@ -147,7 +155,7 @@ Start-Process python.exe validate_fast.py v[ver] -WindowStyle Hidden
 
 ## Windows 유지보수 키트 (`I:\code\maintenance`) — 수정 규칙
 - **버전은 `VERSION` 파일(1줄 버전 / 2줄 날짜)이 유일 기준**이고, **수정할 때마다 올린다** (오류·문구=PATCH, 기능·동작=MINOR, 구조=MAJOR).
-- **배포는 주 1회(토 04:00) 슬롯제** (`maintenance/UPDATE_SCHEDULE.md` 가 유일 기준). 사용자가 수시로 알려주는 변경사항은 **관련 조치끼리 같은 주 슬롯에 묶고**, 맞는 슬롯이 없으면 **예약된 다음 주 빈 슬롯**에 넣는다. 새 슬롯을 임의로 만들지 말 것. **만료 없는 피드백 토큰만 12/21(1개월 뒤) 업데이트 항목에 함께 묶어 배포** (만료일 있는 토큰 금지). PC 예약 작업: `OpenCode-Maintenance-AutoUpdate-Weekly`(매주 토) + `OpenCode-Maintenance-AutoUpdate-1Month`(12/21, 토큰 포함). install.ps1 은 점검 작업만 재등록하므로 업데이트 작업은 버전 설치에 영향 없음.
+- **배포는 주 1회(토 00:00) 슬롯제** (`maintenance/UPDATE_SCHEDULE.md` 가 유일 기준, 2026-11-27 사용자 지정으로 기존 토 04:00에서 변경). 사용자가 수시로 알려주는 변경사항은 **관련 조치끼리 같은 주 슬롯에 묶고**, 맞는 슬롯이 없으면 **예약된 다음 주 빈 슬롯**에 넣는다. 새 슬롯을 임의로 만들지 말 것. **만료 없는 피드백 토큰만 12/21(1개월 뒤) 업데이트 항목에 함께 묶어 배포** (만료일 있는 토큰 금지). PC 예약 작업: `OpenCode-Maintenance-AutoUpdate-Weekly`(매주 토 00:05 — 00:00 공개·적용 직후 안정본 확인 설치) + `OpenCode-Maintenance-AutoUpdate-1Month`(12/21, 토큰 포함) + `OpenCode-Maintenance-PreVerify`(매일 23:30, 금요일 실행이 본배포 직전 검증). install.ps1 은 점검 작업(매일 04:00)만 재등록하므로 업데이트·미리검증 작업은 버전 설치에 영향 없음.
 - 수정 후 순서: PS 5.1 파서 검사(5파일) + **UTF-8 BOM 유지** 확인 → 필요 시 `dist\AutoMaintenance_v<버전>_<YYYYMMDD>.zip` 재빌드·검증 → **이 PC에도 즉시 적용**.
 - 이 PC 적용: `H:\AutoMaintenance_v<버전>` 새 폴더에 ZIP 추출 → `Simple maintenance`의 상태 파일(`.last_*`, `config.json`, `*-state.json`, `last-result.json`, `adbackup`)·루트 `status.json`/`logs` 이어받기 → `install.ps1 -NoFirstRun` → 예약 작업(`OpenCode-Maintenance`) Args·바탕화면 바로가기 경로 확인 → 옛 설치 폴더 삭제.
 - 안전 원칙: 자동 삭제·앱 제거·서드파티 업데이터 중지 금지. 삭제는 `y` 를 눌러야만, 확인은 실행당 1회. 결과 파일 정리는 **이동만**(`자동점검결과` 폴더), 단 v1.4.0 부터 **이 키트가 만든 결과 txt 중 3개월(90일) 지난 것만** `resultRetentionDays` 로 묻지 않고 자동 삭제(사용자 명시 요청).

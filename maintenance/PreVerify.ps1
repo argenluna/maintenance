@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+﻿﻿# -*- coding: utf-8 -*-
 # ============================================================
 #  Auto Maintenance - 미리검증(Pre-Verify) [로컬 운영 스크립트 / ZIP 미포함]
 #  - GitHub 의 미리검증 릴리스(tag vX.Y.Z-rcN, prerelease)를 내려받아
@@ -249,7 +249,7 @@ try {
 $bad = @($script:rows | Where-Object { -not $_.Ok })
 if ($bad.Count -eq 0) {
   $summary = '문제 없음 — 예약일 본배포 진행 가능'
-  $note = "이 검사는 설치본을 바꾸지 않습니다. 예약일 04:00 에 안정버전(v$($pick.Ver))이 공개되면 자동업데이트가 설치합니다."
+  $note = "이 검사는 설치본을 바꾸지 않습니다. 예약일 00:00 에 안정버전(v$($pick.Ver))이 공개되면 00:05 자동업데이트가 설치합니다."
   L "미리검증 통과: $($pick.Tag)"
   Write-VerifyReport -Tag $pick.Tag -Summary $summary -Note $note
   exit 0
